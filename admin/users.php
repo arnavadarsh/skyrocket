@@ -5,9 +5,10 @@ $page_title = "Manage Users";
 
 $db = getDB();
 
-// Handle user deletion
-if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
-    $user_id = $_GET['delete'];
+// Handle user deletion (POST + CSRF; GET must never mutate)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_user']) && is_numeric($_POST['delete_user'])) {
+    csrf_verify();
+    $user_id = $_POST['delete_user'];
     
     // Don't allow deleting yourself
     if ($user_id == $_SESSION['user_id']) {
@@ -32,18 +33,22 @@ if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
     }
 }
 
-// Handle admin status toggle
-if (isset($_GET['toggle_admin']) && is_numeric($_GET['toggle_admin'])) {
-    $user_id = $_GET['toggle_admin'];
-    
-    // Don't allow changing your own admin status
+// Handle role change (POST + CSRF)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_role']) && is_numeric($_POST['user_id'] ?? '')) {
+    csrf_verify();
+    $user_id = $_POST['user_id'];
+    $new_role = $_POST['role'] ?? '';
+
+    // Changing your own role could lock you out of this page mid-session
     if ($user_id == $_SESSION['user_id']) {
-        $error_message = "You cannot change your own admin status.";
+        $error_message = "You cannot change your own role while logged in.";
+    } elseif (!in_array($new_role, ['user', 'staff', 'admin'], true)) {
+        $error_message = "Invalid role.";
     } else {
         try {
-            $stmt = $db->prepare("UPDATE users SET is_admin = NOT is_admin WHERE user_id = ?");
-            $stmt->execute([$user_id]);
-            $success_message = "User admin status has been updated.";
+            $stmt = $db->prepare("UPDATE users SET role = ? WHERE user_id = ?");
+            $stmt->execute([$new_role, $user_id]);
+            $success_message = "User role updated to " . $new_role . ".";
         } catch (Exception $e) {
             $error_message = "Error updating user: " . $e->getMessage();
         }
@@ -79,10 +84,12 @@ $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <li><a href="bookings.php">Bookings</a></li>
                 <li><a href="users.php" class="active">Users</a></li>
                 <li><a href="flights.php">Flights</a></li>
+                <li><a href="aircraft.php">Aircraft</a></li>
+                <li><a href="employees.php">Employees</a></li>
                 <li><a href="custom_query.php">Custom Query</a></li>
             </ul>
             <div class="auth-links">
-                <span>Welcome, <?php echo $_SESSION['first_name']; ?></span>
+                <span>Welcome, <?php echo e($_SESSION['first_name']); ?></span>
                 <a href="../logout.php">Logout</a>
             </div>
         </nav>
@@ -93,11 +100,11 @@ $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <h1>Manage Users</h1>
             
             <?php if (isset($success_message)): ?>
-                <div class="alert alert-success"><?php echo $success_message; ?></div>
+                <div class="alert alert-success"><?php echo e($success_message); ?></div>
             <?php endif; ?>
             
             <?php if (isset($error_message)): ?>
-                <div class="alert alert-error"><?php echo $error_message; ?></div>
+                <div class="alert alert-error"><?php echo e($error_message); ?></div>
             <?php endif; ?>
             
             <div class="table-responsive">
@@ -122,19 +129,33 @@ $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                     <td><?php echo htmlspecialchars($user['first_name'] . ' ' . $user['last_name']); ?></td>
                                     <td><?php echo htmlspecialchars($user['email']); ?></td>
                                     <td>
-                                        <?php if ($user['is_admin']): ?>
+                                        <?php if ($user['role'] === 'admin'): ?>
                                             <span class="badge badge-admin">Admin</span>
+                                        <?php elseif ($user['role'] === 'staff'): ?>
+                                            <span class="badge badge-admin">Staff</span>
                                         <?php else: ?>
                                             <span class="badge badge-user">User</span>
                                         <?php endif; ?>
                                     </td>
                                     <td><?php echo date('M d, Y', strtotime($user['created_at'])); ?></td>
                                     <td>
-                                        <a href="?toggle_admin=<?php echo $user['user_id']; ?>" class="btn btn-secondary">
-                                            <?php echo $user['is_admin'] ? 'Remove Admin' : 'Make Admin'; ?>
-                                        </a>
                                         <?php if ($user['user_id'] != $_SESSION['user_id']): ?>
-                                            <a href="?delete=<?php echo $user['user_id']; ?>" class="btn btn-danger" onclick="return confirm('Are you sure you want to delete this user?')">Delete</a>
+                                            <form action="" method="post" class="status-form" style="display:inline-flex">
+                                                <?php echo csrf_field(); ?>
+                                                <input type="hidden" name="user_id" value="<?php echo $user['user_id']; ?>">
+                                                <select name="role" class="form-control status-select">
+                                                    <?php foreach (['user', 'staff', 'admin'] as $r): ?>
+                                                        <option value="<?php echo $r; ?>" <?php echo $user['role'] === $r ? 'selected' : ''; ?>><?php echo ucfirst($r); ?></option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                                <button type="submit" name="update_role" value="1" class="btn btn-sm">Update</button>
+                                            </form>
+                                        <?php endif; ?>
+                                        <?php if ($user['user_id'] != $_SESSION['user_id']): ?>
+                                            <form action="" method="post" onsubmit="return confirm('Are you sure you want to delete this user?')" style="display:inline">
+                                                <?php echo csrf_field(); ?>
+                                                <button type="submit" name="delete_user" value="<?php echo $user['user_id']; ?>" class="btn btn-danger">Delete</button>
+                                            </form>
                                         <?php endif; ?>
                                     </td>
                                 </tr>

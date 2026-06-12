@@ -6,16 +6,19 @@ $page_title = "Manage Flights";
 
 $db = getDB();
 
-// Handle flight deletion
-if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
-    $flight_id = $_GET['delete'];
-    
+$flight_statuses = ['scheduled', 'delayed', 'boarding', 'departed', 'arrived', 'cancelled'];
+
+// Handle flight deletion (POST + CSRF; GET must never mutate)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['delete_flight']) && is_numeric($_POST['delete_flight'])) {
+    csrf_verify();
+    $flight_id = $_POST['delete_flight'];
+
     try {
         // Check if flight has bookings
         $stmt = $db->prepare("SELECT COUNT(*) FROM bookings WHERE flight_id = ? OR return_flight_id = ?");
         $stmt->execute([$flight_id, $flight_id]);
         $has_bookings = $stmt->fetchColumn() > 0;
-        
+
         if ($has_bookings) {
             $error_message = "Cannot delete flight with existing bookings.";
         } else {
@@ -28,8 +31,27 @@ if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
     }
 }
 
+// Handle flight status update
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status']) && is_numeric($_POST['flight_id'] ?? '')) {
+    csrf_verify();
+    $status = $_POST['status'] ?? '';
+
+    if (!in_array($status, $flight_statuses, true)) {
+        $error_message = "Invalid flight status.";
+    } else {
+        try {
+            $stmt = $db->prepare("UPDATE flights SET status = ? WHERE flight_id = ?");
+            $stmt->execute([$status, $_POST['flight_id']]);
+            $success_message = "Flight #" . (int)$_POST['flight_id'] . " status set to " . $status . ".";
+        } catch (Exception $e) {
+            $error_message = "Error updating status: " . $e->getMessage();
+        }
+    }
+}
+
 // Handle flight addition
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_flight'])) {
+    csrf_verify();
     $flight_number = $_POST['flight_number'];
     $airline = $_POST['airline'];
     $departure_city = $_POST['departure_city'];
@@ -39,19 +61,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_flight'])) {
     $economy_price = $_POST['economy_price'];
     $business_price = $_POST['business_price'];
     $first_price = $_POST['first_price'];
-    $available_seats = $_POST['available_seats'];
-    
-    try {
-        $stmt = $db->prepare("INSERT INTO flights (flight_number, airline, departure_city, arrival_city, departure_time, arrival_time, price, economy_price, business_price, first_price, available_seats) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$flight_number, $airline, $departure_city, $arrival_city, $departure_time, $arrival_time, $economy_price, $economy_price, $business_price, $first_price, $available_seats]);
-        $success_message = "Flight has been added successfully.";
-    } catch (Exception $e) {
-        $error_message = "Error adding flight: " . $e->getMessage();
+    $available_seats = trim($_POST['available_seats'] ?? '');
+    $aircraft_id = $_POST['aircraft_id'] ?? '';
+    $gate_id = $_POST['gate_id'] ?? '';
+
+    $aircraft = null;
+    if ($aircraft_id !== '') {
+        // Only active aircraft can be assigned
+        $stmt = $db->prepare("SELECT * FROM aircraft WHERE aircraft_id = ? AND maintenance_status = 'active'");
+        $stmt->execute([$aircraft_id]);
+        $aircraft = $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    $gate_ok = true;
+    if ($gate_id !== '') {
+        // Only open gates can be assigned
+        $stmt = $db->prepare("SELECT COUNT(*) FROM gates WHERE gate_id = ? AND status = 'open'");
+        $stmt->execute([$gate_id]);
+        $gate_ok = $stmt->fetchColumn() > 0;
+    }
+
+    if ($aircraft_id !== '' && !$aircraft) {
+        $error_message = "Please choose an active aircraft.";
+    } elseif (!$gate_ok) {
+        $error_message = "Please choose an open gate.";
+    } elseif ($available_seats === '' && !$aircraft) {
+        $error_message = "Enter the available seats or choose an aircraft to default to its capacity.";
+    } elseif ($available_seats !== '' && (!ctype_digit($available_seats) || (int)$available_seats < 1)) {
+        $error_message = "Available seats must be a whole number greater than 0.";
+    } elseif ($aircraft && $available_seats !== '' && (int)$available_seats > $aircraft['capacity']) {
+        $error_message = "Available seats (" . (int)$available_seats . ") cannot exceed the " . $aircraft['model'] . "'s capacity of " . $aircraft['capacity'] . "."; // template escapes via e()
+    } else {
+        // Seats left blank with an aircraft chosen: default to its capacity
+        $seats = ($available_seats === '') ? $aircraft['capacity'] : (int)$available_seats;
+
+        try {
+            $stmt = $db->prepare("INSERT INTO flights (flight_number, airline, departure_city, arrival_city, departure_time, arrival_time, economy_price, business_price, first_price, available_seats, aircraft_id, gate_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$flight_number, $airline, $departure_city, $arrival_city, $departure_time, $arrival_time, $economy_price, $business_price, $first_price, $seats,
+                            $aircraft_id === '' ? null : $aircraft_id,
+                            $gate_id === '' ? null : $gate_id]);
+            $success_message = "Flight has been added successfully.";
+        } catch (Exception $e) {
+            $error_message = "Error adding flight: " . $e->getMessage();
+        }
     }
 }
 
+// Options for the add-flight form
+$active_aircraft = $db->query("SELECT aircraft_id, model, capacity FROM aircraft WHERE maintenance_status = 'active' ORDER BY model, aircraft_id")->fetchAll(PDO::FETCH_ASSOC);
+$open_gates = $db->query("SELECT gate_id, terminal, gate_number FROM gates WHERE status = 'open' ORDER BY terminal, CAST(gate_number AS UNSIGNED)")->fetchAll(PDO::FETCH_ASSOC);
+
 // Get all flights
-$stmt = $db->query("SELECT * FROM flights ORDER BY departure_time");
+$stmt = $db->query("
+    SELECT f.*, a.model AS aircraft_model, g.terminal, g.gate_number
+    FROM flights f
+    LEFT JOIN aircraft a ON f.aircraft_id = a.aircraft_id
+    LEFT JOIN gates g ON f.gate_id = g.gate_id
+    ORDER BY f.departure_time
+");
 $flights = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 
@@ -79,10 +146,12 @@ $flights = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <li><a href="bookings.php">Bookings</a></li>
                 <li><a href="users.php">Users</a></li>
                 <li><a href="flights.php" class="active">Flights</a></li>
+                <li><a href="aircraft.php">Aircraft</a></li>
+                <li><a href="employees.php">Employees</a></li>
                 <li><a href="custom_query.php">Custom Query</a></li>
             </ul>
             <div class="auth-links">
-                <span>Welcome, <?php echo $_SESSION['first_name']; ?></span>
+                <span>Welcome, <?php echo e($_SESSION['first_name']); ?></span>
                 <a href="../logout.php">Logout</a>
             </div>
         </nav>
@@ -93,16 +162,17 @@ $flights = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <h1>Manage Flights</h1>
             
             <?php if (isset($success_message)): ?>
-                <div class="alert alert-success"><?php echo $success_message; ?></div>
+                <div class="alert alert-success"><?php echo e($success_message); ?></div>
             <?php endif; ?>
             
             <?php if (isset($error_message)): ?>
-                <div class="alert alert-error"><?php echo $error_message; ?></div>
+                <div class="alert alert-error"><?php echo e($error_message); ?></div>
             <?php endif; ?>
             
             <div class="admin-card">
                 <h2>Add New Flight</h2>
                 <form action="" method="post">
+                    <?php echo csrf_field(); ?>
                     <div class="form-row">
                         <div class="form-group">
                             <label for="flight_number">Flight Number</label>
@@ -153,8 +223,26 @@ $flights = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     
                     <div class="form-row">
                         <div class="form-group">
+                            <label for="aircraft_id">Aircraft</label>
+                            <select id="aircraft_id" name="aircraft_id" class="form-control">
+                                <option value="">&mdash; none &mdash;</option>
+                                <?php foreach ($active_aircraft as $a): ?>
+                                    <option value="<?php echo $a['aircraft_id']; ?>">#<?php echo $a['aircraft_id']; ?> <?php echo e($a['model']); ?> (<?php echo $a['capacity']; ?> seats)</option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="gate_id">Gate</label>
+                            <select id="gate_id" name="gate_id" class="form-control">
+                                <option value="">&mdash; none &mdash;</option>
+                                <?php foreach ($open_gates as $g): ?>
+                                    <option value="<?php echo $g['gate_id']; ?>"><?php echo e($g['terminal'] . '-' . $g['gate_number']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div class="form-group">
                             <label for="available_seats">Available Seats</label>
-                            <input type="number" id="available_seats" name="available_seats" min="1" class="form-control" required>
+                            <input type="number" id="available_seats" name="available_seats" min="1" class="form-control" placeholder="blank = aircraft capacity">
                         </div>
                     </div>
                     
@@ -177,6 +265,9 @@ $flights = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <th>Business</th>
                             <th>First</th>
                             <th>Seats</th>
+                            <th>Aircraft</th>
+                            <th>Gate</th>
+                            <th>Status</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -194,14 +285,31 @@ $flights = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                     <td>₹<?php echo number_format($flight['business_price'], 2); ?></td>
                                     <td>₹<?php echo number_format($flight['first_price'], 2); ?></td>
                                     <td><?php echo $flight['available_seats']; ?></td>
+                                    <td><?php echo $flight['aircraft_model'] ? e($flight['aircraft_model']) : '&mdash;'; ?></td>
+                                    <td><?php echo $flight['gate_id'] ? e($flight['terminal'] . '-' . $flight['gate_number']) : '&mdash;'; ?></td>
                                     <td>
-                                        <a href="?delete=<?php echo $flight['flight_id']; ?>" class="btn btn-danger" onclick="return confirm('Are you sure you want to delete this flight?')">Delete</a>
+                                        <form action="" method="post" class="status-form">
+                                            <?php echo csrf_field(); ?>
+                                            <input type="hidden" name="flight_id" value="<?php echo $flight['flight_id']; ?>">
+                                            <select name="status" class="form-control status-select">
+                                                <?php foreach ($flight_statuses as $st): ?>
+                                                    <option value="<?php echo $st; ?>" <?php echo $flight['status'] === $st ? 'selected' : ''; ?>><?php echo ucfirst($st); ?></option>
+                                                <?php endforeach; ?>
+                                            </select>
+                                            <button type="submit" name="update_status" value="1" class="btn btn-sm">Update</button>
+                                        </form>
+                                    </td>
+                                    <td>
+                                        <form action="" method="post" onsubmit="return confirm('Are you sure you want to delete this flight?')" style="display:inline">
+                                            <?php echo csrf_field(); ?>
+                                            <button type="submit" name="delete_flight" value="<?php echo $flight['flight_id']; ?>" class="btn btn-danger">Delete</button>
+                                        </form>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
                         <?php else: ?>
                             <tr>
-                                <td colspan="11" class="text-center">No flights found</td>
+                                <td colspan="14" class="text-center">No flights found</td>
                             </tr>
                         <?php endif; ?>
                     </tbody>
@@ -278,66 +386,6 @@ $flights = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     document.getElementById('first_price').value = (economyPrice * 2.5).toFixed(2);
                 });
                 
-                // Price range slider
-                const priceSlider = document.getElementById('price-range');
-                const priceValue = document.getElementById('price-value');
-                
-                if (priceSlider && priceValue) {
-                    priceSlider.addEventListener('input', function() {
-                        priceValue.textContent = '$' + this.value;
-                    });
-                }
-                
-                // Flight selection
-                document.querySelectorAll('.flight-card').forEach(function(card) {
-                    card.addEventListener('click', function(e) {
-                        // Don't trigger if clicking on the select button
-                        if (e.target.classList.contains('btn-select')) {
-                            return;
-                        }
-                        
-                        // Toggle selected class
-                        document.querySelectorAll('.flight-card').forEach(function(c) {
-                            c.classList.remove('selected');
-                        });
-                        
-                        this.classList.add('selected');
-                        
-                        // Store selected flight IDs
-                        const flightId = this.getAttribute('data-flight-id');
-                        
-                        if (this.closest('.flight-section').querySelector('h2').textContent.includes('Outbound')) {
-                            window.selectedOutbound = flightId;
-                        } else {
-                            window.selectedReturn = flightId;
-                        }
-                        
-                        // Update select buttons if both flights are selected (for round trips)
-                        if (window.selectedOutbound && window.selectedReturn) {
-                            document.querySelectorAll('.flight-card .btn-select').forEach(function(btn) {
-                                const card = btn.closest('.flight-card');
-                                const isOutbound = card.closest('.flight-section').querySelector('h2').textContent.includes('Outbound');
-                                
-                                if (isOutbound) {
-                                    btn.href = `booking.php?flight_id=${window.selectedOutbound}&return_id=${window.selectedReturn}&passengers=<?php echo $passengers; ?>&class=<?php echo $class; ?>`;
-                                } else {
-                                    btn.href = `booking.php?flight_id=${window.selectedOutbound}&return_id=${window.selectedReturn}&passengers=<?php echo $passengers; ?>&class=<?php echo $class; ?>`;
-                                }
-                            });
-                        }
-                    });
-                });
-                
-                // Initialize with any pre-selected flights
-                <?php if (!empty($outbound_flights) && isset($_GET['selected_outbound'])): ?>
-                window.selectedOutbound = '<?php echo $_GET['selected_outbound']; ?>';
-                document.querySelector(`.flight-card[data-flight-id="${window.selectedOutbound}"]`)?.classList.add('selected');
-                <?php endif; ?>
-                
-                <?php if (!empty($return_flights) && isset($_GET['selected_return'])): ?>
-                window.selectedReturn = '<?php echo $_GET['selected_return']; ?>';
-                document.querySelector(`.flight-card[data-flight-id="${window.selectedReturn}"]`)?.classList.add('selected');
-                <?php endif; ?>
             </script>
 </body>
 </html>

@@ -15,20 +15,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['execute_query'])) {
     
     if (empty($query)) {
         $error = "Please enter a SQL query.";
+    } elseif (!preg_match('/^\s*(SELECT|EXPLAIN|SHOW|DESCRIBE)\b/i', $query)) {
+        $error = "This is a read-only console: only SELECT, EXPLAIN, SHOW and DESCRIBE queries are allowed.";
+    } elseif (strpos(rtrim($query, "; \t\n\r"), ';') !== false) {
+        $error = "This is a read-only console: only a single statement is allowed (no semicolons).";
     } else {
         try {
-            // Determine if it's a SELECT query or another type
-            $is_select = (stripos($query, 'SELECT') === 0);
-            
-            if ($is_select) {
-                $stmt = $db->query($query);
-                $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                $success = "Query executed successfully. " . count($result) . " rows returned.";
-            } else {
-                $stmt = $db->exec($query);
-                $affected_rows = $stmt;
-                $success = "Query executed successfully. " . $affected_rows . " rows affected.";
-            }
+            $stmt = $db->query($query);
+            $result = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $success = "Query executed successfully. " . count($result) . " rows returned.";
         } catch (PDOException $e) {
             $error = "Error executing query: " . $e->getMessage();
         }
@@ -101,10 +96,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['execute_query'])) {
                 <li><a href="bookings.php">Bookings</a></li>
                 <li><a href="users.php">Users</a></li>
                 <li><a href="flights.php">Flights</a></li>
+                <li><a href="aircraft.php">Aircraft</a></li>
+                <li><a href="employees.php">Employees</a></li>
                 <li><a href="custom_query.php" class="active">Custom Query</a></li>
             </ul>
             <div class="auth-links">
-                <span>Welcome, <?php echo $_SESSION['first_name']; ?></span>
+                <span>Welcome, <?php echo e($_SESSION['first_name']); ?></span>
                 <a href="../logout.php">Logout</a>
             </div>
         </nav>
@@ -113,18 +110,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['execute_query'])) {
     <main>
         <div class="admin-container">
             <h1>Custom SQL Query</h1>
-            <p>Execute custom SQL queries on the database. Please be careful with UPDATE, DELETE, and DROP statements.</p>
+            <p>Read-only SQL console: SELECT, EXPLAIN, SHOW and DESCRIBE queries only.</p>
             
             <?php if (!empty($error)): ?>
-                <div class="alert alert-error"><?php echo $error; ?></div>
+                <div class="alert alert-error"><?php echo e($error); ?></div>
             <?php endif; ?>
             
             <?php if (!empty($success)): ?>
-                <div class="alert alert-success"><?php echo $success; ?></div>
+                <div class="alert alert-success"><?php echo e($success); ?></div>
             <?php endif; ?>
             
             <div class="admin-card">
                 <form action="" method="post">
+                    <?php echo csrf_field(); ?>
                     <div class="form-group">
                         <label for="sql_query">SQL Query:</label>
                         <textarea id="sql_query" name="sql_query" class="query-editor"><?php echo htmlspecialchars($query); ?></textarea>

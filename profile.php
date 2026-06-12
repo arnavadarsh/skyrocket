@@ -23,7 +23,7 @@ $user = getUser($_SESSION['user_id']);
                 <p><strong>Last Name:</strong> <?php echo htmlspecialchars($user['last_name']); ?></p>
                 <p><strong>Username:</strong> <?php echo htmlspecialchars($user['username']); ?></p>
                 <p><strong>Email:</strong> <?php echo htmlspecialchars($user['email']); ?></p>
-                <p><strong>Role:</strong> <?php echo $user['is_admin'] ? 'Admin' : 'User'; ?></p>
+                <p><strong>Role:</strong> <?php echo e(ucfirst($user['role'])); ?></p>
                 <p><strong>Member Since:</strong> <?php echo date('M d, Y', strtotime($user['created_at'])); ?></p>
             </div>
             <div class="form-footer">

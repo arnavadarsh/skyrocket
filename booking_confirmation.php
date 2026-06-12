@@ -19,6 +19,8 @@ $stmt = $db->prepare("
            f1.flight_number as outbound_flight, f1.airline as outbound_airline, 
            f1.departure_city as from_city, f1.arrival_city as to_city, 
            f1.departure_time, f1.arrival_time,
+           g1.terminal as outbound_terminal, g1.gate_number as outbound_gate,
+           g2.terminal as return_terminal, g2.gate_number as return_gate,
            CASE 
                WHEN b.class = 'economy' THEN f1.economy_price
                WHEN b.class = 'business' THEN f1.business_price
@@ -36,6 +38,8 @@ $stmt = $db->prepare("
     FROM bookings b
     JOIN flights f1 ON b.flight_id = f1.flight_id
     LEFT JOIN flights f2 ON b.return_flight_id = f2.flight_id
+    LEFT JOIN gates g1 ON f1.gate_id = g1.gate_id
+    LEFT JOIN gates g2 ON f2.gate_id = g2.gate_id
     WHERE b.booking_id = ? AND b.user_id = ?
 ");
 $stmt->execute([$booking_id, $_SESSION['user_id']]);
@@ -48,6 +52,40 @@ if (!$booking) {
 
 // Get class name for display
 $class_display = ucfirst($booking['class'] ?? 'Economy');
+
+// Tickets (passenger + leg + seat + fare snapshot)
+$stmt = $db->prepare("
+    SELECT t.ticket_id, t.flight_id, t.seat_number, t.class, t.fare, t.status,
+           p.full_name, f.flight_number
+    FROM tickets t
+    JOIN passengers p ON t.passenger_id = p.passenger_id
+    JOIN flights f ON t.flight_id = f.flight_id
+    WHERE t.booking_id = ?
+    ORDER BY t.flight_id = ? DESC, t.ticket_id
+");
+$stmt->execute([$booking_id, $booking['flight_id']]);
+$tickets = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Luggage per ticket (added by staff at check-in)
+$stmt = $db->prepare("
+    SELECT l.ticket_id, l.weight, l.status
+    FROM luggage l
+    JOIN tickets t ON l.ticket_id = t.ticket_id
+    WHERE t.booking_id = ?
+    ORDER BY l.luggage_id
+");
+$stmt->execute([$booking_id]);
+$luggage_by_ticket = [];
+foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $bag) {
+    $luggage_by_ticket[$bag['ticket_id']][] = $bag;
+}
+
+// Latest payment for this booking (NULL if never paid)
+$stmt = $db->prepare("SELECT * FROM payments WHERE booking_id = ? ORDER BY payment_id DESC LIMIT 1");
+$stmt->execute([$booking_id]);
+$payment = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+
+$method_labels = ['card' => 'Card', 'upi' => 'UPI', 'netbanking' => 'Netbanking'];
 ?>
 
 <!DOCTYPE html>
@@ -341,12 +379,15 @@ $class_display = ucfirst($booking['class'] ?? 'Economy');
                 <li><a href="index.php">Home</a></li>
                 <li><a href="flights.php">Flights</a></li>
                 <li><a href="booking_history.php">Bookings</a></li>
+                <?php if (isLoggedIn() && isStaff()): ?>
+                <li><a href="staff/index.php">Staff Dashboard</a></li>
+                <?php endif; ?>
                 <?php if (isLoggedIn() && isAdmin()): ?>
-                <li><a href="admin/index.php">Employee Portal</a></li>
+                <li><a href="admin/index.php">Admin</a></li>
                 <?php endif; ?>
             </ul>
             <div class="auth-links">
-                <span>Welcome, <?php echo $_SESSION['first_name']; ?></span>
+                <span>Welcome, <?php echo e($_SESSION['first_name']); ?></span>
                 <a href="profile.php">My Profile</a>
                 <a href="booking_history.php">My Bookings</a>
                 <a href="logout.php">Logout</a>
@@ -357,11 +398,19 @@ $class_display = ucfirst($booking['class'] ?? 'Economy');
     <main>
         <div class="container">
             <div class="confirmation-container">
+                <?php if ($booking['status'] === 'cancelled'): ?>
+                <div class="confirmation-header">
+                    <div class="confirmation-icon" style="background-color:#f8d7da;color:#721c24;">✕</div>
+                    <h1>Booking Cancelled</h1>
+                    <p>This booking has been cancelled. The details below are kept for your records.</p>
+                </div>
+                <?php else: ?>
                 <div class="confirmation-header">
                     <div class="confirmation-icon">✓</div>
                     <h1>Booking Confirmed!</h1>
                     <p>Your booking has been successfully confirmed. Below are your booking details.</p>
                 </div>
+                <?php endif; ?>
                 
                 <div class="booking-details">
                     <div class="booking-info">
@@ -383,6 +432,28 @@ $class_display = ucfirst($booking['class'] ?? 'Economy');
                                 <span>Passenger(s):</span>
                                 <span><?php echo $booking['passenger_count']; ?></span>
                             </div>
+                            <?php if ($payment): ?>
+                            <div class="info-row">
+                                <span>Payment Method:</span>
+                                <span><?php echo e($method_labels[$payment['method']] ?? $payment['method']); ?></span>
+                            </div>
+                            <div class="info-row">
+                                <span>Transaction Ref:</span>
+                                <span><?php echo e($payment['txn_ref']); ?></span>
+                            </div>
+                            <div class="info-row">
+                                <span>Payment Status:</span>
+                                <span><?php echo $payment['status'] === 'refunded'
+                                    ? '<span class="status-badge status-cancelled">Refunded</span>'
+                                    : '<span class="status-badge status-scheduled">' . e(ucfirst($payment['status'])) . '</span>'; ?></span>
+                            </div>
+                            <?php if ($payment['paid_at']): ?>
+                            <div class="info-row">
+                                <span>Paid At:</span>
+                                <span><?php echo date('M d, Y H:i', strtotime($payment['paid_at'])); ?></span>
+                            </div>
+                            <?php endif; ?>
+                            <?php endif; ?>
                             <div class="info-row total">
                                 <span>Total Price:</span>
                                 <span>₹<?php echo number_format($booking['total_price'], 2); ?></span>
@@ -395,15 +466,18 @@ $class_display = ucfirst($booking['class'] ?? 'Economy');
                         <div class="flight-card">
                             <div class="flight-header">
                                 <div>
-                                    <span class="airline"><?php echo $booking['outbound_airline']; ?></span>
-                                    <span class="flight-number"><?php echo $booking['outbound_flight']; ?></span>
+                                    <span class="airline"><?php echo e($booking['outbound_airline']); ?></span>
+                                    <span class="flight-number"><?php echo e($booking['outbound_flight']); ?></span>
                                 </div>
                                 <div class="flight-type">Outbound Flight</div>
                             </div>
+                            <p class="gate-info">
+                                Gate: <?php echo $booking['outbound_gate'] ? '<strong>' . e($booking['outbound_terminal'] . '-' . $booking['outbound_gate']) . '</strong>' : 'TBA'; ?>
+                            </p>
                             
                             <div class="flight-route">
                                 <div class="departure">
-                                    <div class="city"><?php echo $booking['from_city']; ?></div>
+                                    <div class="city"><?php echo e($booking['from_city']); ?></div>
                                     <div class="time"><?php echo date('H:i', strtotime($booking['departure_time'])); ?></div>
                                     <div class="date"><?php echo date('M d, Y', strtotime($booking['departure_time'])); ?></div>
                                 </div>
@@ -414,7 +488,7 @@ $class_display = ucfirst($booking['class'] ?? 'Economy');
                                 </div>
                                 
                                 <div class="arrival">
-                                    <div class="city"><?php echo $booking['to_city']; ?></div>
+                                    <div class="city"><?php echo e($booking['to_city']); ?></div>
                                     <div class="time"><?php echo date('H:i', strtotime($booking['arrival_time'])); ?></div>
                                     <div class="date"><?php echo date('M d, Y', strtotime($booking['arrival_time'])); ?></div>
                                 </div>
@@ -426,19 +500,22 @@ $class_display = ucfirst($booking['class'] ?? 'Economy');
                             </div>
                         </div>
                         
-                        <?php if ($booking['is_round_trip'] && $booking['return_flight']): ?>
+                        <?php if ($booking['return_flight']): ?>
                         <div class="flight-card">
                             <div class="flight-header">
                                 <div>
-                                    <span class="airline"><?php echo $booking['return_airline']; ?></span>
-                                    <span class="flight-number"><?php echo $booking['return_flight']; ?></span>
+                                    <span class="airline"><?php echo e($booking['return_airline']); ?></span>
+                                    <span class="flight-number"><?php echo e($booking['return_flight']); ?></span>
                                 </div>
                                 <div class="flight-type">Return Flight</div>
                             </div>
+                            <p class="gate-info">
+                                Gate: <?php echo $booking['return_gate'] ? '<strong>' . e($booking['return_terminal'] . '-' . $booking['return_gate']) . '</strong>' : 'TBA'; ?>
+                            </p>
                             
                             <div class="flight-route">
                                 <div class="departure">
-                                    <div class="city"><?php echo $booking['to_city']; ?></div>
+                                    <div class="city"><?php echo e($booking['to_city']); ?></div>
                                     <div class="time"><?php echo date('H:i', strtotime($booking['return_departure'])); ?></div>
                                     <div class="date"><?php echo date('M d, Y', strtotime($booking['return_departure'])); ?></div>
                                 </div>
@@ -449,7 +526,7 @@ $class_display = ucfirst($booking['class'] ?? 'Economy');
                                 </div>
                                 
                                 <div class="arrival">
-                                    <div class="city"><?php echo $booking['from_city']; ?></div>
+                                    <div class="city"><?php echo e($booking['from_city']); ?></div>
                                     <div class="time"><?php echo date('H:i', strtotime($booking['return_arrival'])); ?></div>
                                     <div class="date"><?php echo date('M d, Y', strtotime($booking['return_arrival'])); ?></div>
                                 </div>
@@ -464,6 +541,53 @@ $class_display = ucfirst($booking['class'] ?? 'Economy');
                     </div>
                 </div>
                 
+                <div class="tickets-section">
+                    <h2>Tickets</h2>
+                    <table class="admin-table tickets-table">
+                        <thead>
+                            <tr>
+                                <th>Passenger</th>
+                                <th>Flight</th>
+                                <th>Leg</th>
+                                <th>Seat</th>
+                                <th>Class</th>
+                                <th>Fare</th>
+                                <th>Status</th>
+                                <th>Luggage</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($tickets as $t): ?>
+                                <tr>
+                                    <td><?php echo e($t['full_name']); ?></td>
+                                    <td><?php echo e($t['flight_number']); ?></td>
+                                    <td><?php echo $t['flight_id'] == $booking['flight_id'] ? 'Outbound' : 'Return'; ?></td>
+                                    <td><?php echo e($t['seat_number'] ?? '—'); ?></td>
+                                    <td><?php echo e(ucfirst($t['class'])); ?></td>
+                                    <td>₹<?php echo number_format($t['fare'], 2); ?></td>
+                                    <td><?php echo $t['status'] === 'cancelled'
+                                        ? '<span class="status-badge status-cancelled">Cancelled</span>'
+                                        : '<span class="status-badge status-scheduled">' . e(ucfirst(str_replace('_', ' ', $t['status']))) . '</span>'; ?></td>
+                                    <td>
+                                        <?php if (!empty($luggage_by_ticket[$t['ticket_id']])): ?>
+                                            <?php foreach ($luggage_by_ticket[$t['ticket_id']] as $bag): ?>
+                                                <div class="luggage-line">
+                                                    <?php echo number_format($bag['weight'], 1); ?> kg
+                                                    <span class="status-badge <?php echo $bag['status'] === 'lost' ? 'status-cancelled' : ($bag['status'] === 'arrived' ? 'status-scheduled' : 'status-boarding'); ?>">
+                                                        <?php echo e(ucfirst(str_replace('_', ' ', $bag['status']))); ?>
+                                                    </span>
+                                                </div>
+                                            <?php endforeach; ?>
+                                        <?php else: ?>
+                                            &mdash;
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+
                 <div class="confirmation-actions">
                     <a href="booking_history.php" class="btn">View All Bookings</a>
                     <a href="index.php" class="btn btn-outline">Back to Home</a>

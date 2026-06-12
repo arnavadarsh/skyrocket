@@ -4,40 +4,55 @@ requireAdmin();
 
 $page_title = "Manage Bookings";
 
-// Delete booking if requested
-if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
-    $booking_id = $_GET['delete'];
+// Cancel booking (POST + CSRF; GET must never mutate).
+// Same logic as user-side cancellation: tickets cancelled with seats
+// freed, completed payment refunded, flight seats restored. Bookings
+// are never hard-deleted anymore — history must survive.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel_booking']) && is_numeric($_POST['cancel_booking'])) {
+    csrf_verify();
+    $booking_id = $_POST['cancel_booking'];
     $db = getDB();
-    
-    // Get booking details to update flight seats
-    $stmt = $db->prepare("SELECT flight_id, return_flight_id, passenger_count FROM bookings WHERE booking_id = ?");
-    $stmt->execute([$booking_id]);
-    $booking = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    if ($booking) {
-        // Begin transaction
+
+    try {
         $db->beginTransaction();
-        
-        try {
-            // Update available seats for outbound flight
+
+        // Lock the booking row so a double-submit cannot restore seats twice
+        $stmt = $db->prepare("SELECT flight_id, return_flight_id, passenger_count, status FROM bookings WHERE booking_id = ? FOR UPDATE");
+        $stmt->execute([$booking_id]);
+        $booking = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$booking) {
+            $db->rollBack();
+            $error_message = "Booking not found.";
+        } elseif ($booking['status'] === 'cancelled') {
+            $db->rollBack();
+            $error_message = "Booking #$booking_id is already cancelled.";
+        } else {
+            $stmt = $db->prepare("UPDATE bookings SET status = 'cancelled' WHERE booking_id = ?");
+            $stmt->execute([$booking_id]);
+
+            // Cancel tickets; NULL frees each seat under UNIQUE(flight_id, seat_number)
+            $stmt = $db->prepare("UPDATE tickets SET status = 'cancelled', seat_number = NULL WHERE booking_id = ?");
+            $stmt->execute([$booking_id]);
+
+            // Refund if paid (writes nothing for unpaid pending bookings)
+            $stmt = $db->prepare("UPDATE payments SET status = 'refunded' WHERE booking_id = ? AND status = 'completed'");
+            $stmt->execute([$booking_id]);
+
             $stmt = $db->prepare("UPDATE flights SET available_seats = available_seats + ? WHERE flight_id = ?");
             $stmt->execute([$booking['passenger_count'], $booking['flight_id']]);
-            
-            // Update available seats for return flight if exists
             if ($booking['return_flight_id']) {
                 $stmt->execute([$booking['passenger_count'], $booking['return_flight_id']]);
             }
-            
-            // Delete booking
-            $stmt = $db->prepare("DELETE FROM bookings WHERE booking_id = ?");
-            $stmt->execute([$booking_id]);
-            
+
             $db->commit();
-            $success_message = "Booking #$booking_id has been deleted successfully.";
-        } catch (Exception $e) {
-            $db->rollBack();
-            $error_message = "Error deleting booking: " . $e->getMessage();
+            $success_message = "Booking #$booking_id has been cancelled (tickets released, refund issued where applicable).";
         }
+    } catch (Exception $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        $error_message = "Error cancelling booking: " . $e->getMessage();
     }
 }
 
@@ -50,7 +65,9 @@ $stmt = $db->query("
            f1.departure_city as from_city, f1.arrival_city as to_city, 
            f1.departure_time, f1.arrival_time,
            f2.flight_number as return_flight, f2.airline as return_airline,
-           f2.departure_time as return_departure, f2.arrival_time as return_arrival
+           f2.departure_time as return_departure, f2.arrival_time as return_arrival,
+           (SELECT GROUP_CONCAT(p.full_name ORDER BY p.passenger_id SEPARATOR ', ') FROM passengers p WHERE p.booking_id = b.booking_id) as passenger_names,
+           (SELECT pay.status FROM payments pay WHERE pay.booking_id = b.booking_id ORDER BY pay.payment_id DESC LIMIT 1) as payment_status
     FROM bookings b
     JOIN users u ON b.user_id = u.user_id
     JOIN flights f1 ON b.flight_id = f1.flight_id
@@ -84,10 +101,12 @@ $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <li><a href="bookings.php" class="active">Bookings</a></li>
                 <li><a href="users.php">Users</a></li>
                 <li><a href="flights.php">Flights</a></li>
+                <li><a href="aircraft.php">Aircraft</a></li>
+                <li><a href="employees.php">Employees</a></li>
                 <li><a href="custom_query.php">Custom Query</a></li>
             </ul>
             <div class="auth-links">
-                <span>Welcome, <?php echo $_SESSION['first_name']; ?></span>
+                <span>Welcome, <?php echo e($_SESSION['first_name']); ?></span>
                 <a href="../logout.php">Logout</a>
             </div>
         </nav>
@@ -98,11 +117,11 @@ $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
             <h1>Manage Bookings</h1>
             
             <?php if (isset($success_message)): ?>
-                <div class="alert alert-success"><?php echo $success_message; ?></div>
+                <div class="alert alert-success"><?php echo e($success_message); ?></div>
             <?php endif; ?>
             
             <?php if (isset($error_message)): ?>
-                <div class="alert alert-error"><?php echo $error_message; ?></div>
+                <div class="alert alert-error"><?php echo e($error_message); ?></div>
             <?php endif; ?>
             
             <div class="table-responsive">
@@ -114,6 +133,8 @@ $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
                             <th>Flight Details</th>
                             <th>Booking Date</th>
                             <th>Passengers</th>
+                            <th>Status</th>
+                            <th>Payment</th>
                             <th>Total Price</th>
                             <th>Actions</th>
                         </tr>
@@ -139,16 +160,46 @@ $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
                                         <?php endif; ?>
                                     </td>
                                     <td><?php echo date('M d, Y H:i', strtotime($booking['booking_date'])); ?></td>
-                                    <td><?php echo $booking['passenger_count']; ?></td>
+                                    <td>
+                                        <?php echo $booking['passenger_count']; ?>
+                                        <?php if ($booking['passenger_names']): ?>
+                                            <br><small><?php echo e($booking['passenger_names']); ?></small>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td><?php
+                                        if ($booking['status'] === 'cancelled') {
+                                            echo '<span class="status-badge status-cancelled">Cancelled</span>';
+                                        } elseif ($booking['status'] === 'pending') {
+                                            echo '<span class="status-badge status-delayed">Pending</span>';
+                                        } else {
+                                            echo '<span class="status-badge status-scheduled">Confirmed</span>';
+                                        }
+                                    ?></td>
+                                    <td><?php
+                                        if ($booking['payment_status'] === 'completed') {
+                                            echo '<span class="status-badge status-scheduled">Paid</span>';
+                                        } elseif ($booking['payment_status'] === 'refunded') {
+                                            echo '<span class="status-badge status-departed">Refunded</span>';
+                                        } else {
+                                            echo '<span class="status-badge status-delayed">Unpaid</span>';
+                                        }
+                                    ?></td>
                                     <td>₹<?php echo number_format($booking['total_price'], 2); ?></td>
                                     <td>
-                                        <a href="?delete=<?php echo $booking['booking_id']; ?>" class="btn btn-danger" onclick="return confirm('Are you sure you want to delete this booking?')">Delete</a>
+                                        <?php if ($booking['status'] !== 'cancelled'): ?>
+                                            <form action="" method="post" onsubmit="return confirm('Cancel this booking? Tickets are released and any payment is refunded.')" style="display:inline">
+                                                <?php echo csrf_field(); ?>
+                                                <button type="submit" name="cancel_booking" value="<?php echo $booking['booking_id']; ?>" class="btn btn-danger">Cancel</button>
+                                            </form>
+                                        <?php else: ?>
+                                            &mdash;
+                                        <?php endif; ?>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
                         <?php else: ?>
                             <tr>
-                                <td colspan="7" class="text-center">No bookings found</td>
+                                <td colspan="9" class="text-center">No bookings found</td>
                             </tr>
                         <?php endif; ?>
                     </tbody>

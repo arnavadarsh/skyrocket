@@ -7,8 +7,11 @@ $page_title = "Book Flight";
 // Get flight details
 $flight_id = isset($_GET['flight_id']) ? intval($_GET['flight_id']) : 0;
 $return_id = isset($_GET['return_id']) ? intval($_GET['return_id']) : 0;
-$passengers = isset($_GET['passengers']) ? intval($_GET['passengers']) : 1;
+$passengers = max(1, min(9, isset($_GET['passengers']) ? intval($_GET['passengers']) : 1));
 $class = isset($_GET['class']) ? $_GET['class'] : 'economy';
+if (!in_array($class, ['economy', 'business', 'first'], true)) {
+    $class = 'economy';
+}
 
 // Validate flight ID
 if ($flight_id <= 0) {
@@ -19,23 +22,7 @@ if ($flight_id <= 0) {
 // Get flight details with appropriate price based on class
 $db = getDB();
 
-// Check if the flights table has the necessary price columns
-$tableCheck = $db->query("SHOW COLUMNS FROM flights LIKE 'economy_price'");
-if ($tableCheck->rowCount() == 0) {
-    // Add the price columns if they don't exist
-    $db->exec("ALTER TABLE flights ADD COLUMN economy_price DECIMAL(10,2) NOT NULL DEFAULT price");
-    $db->exec("ALTER TABLE flights ADD COLUMN business_price DECIMAL(10,2) NOT NULL DEFAULT (price * 1.8)");
-    $db->exec("ALTER TABLE flights ADD COLUMN first_price DECIMAL(10,2) NOT NULL DEFAULT (price * 2.5)");
-}
-
-// Check if the bookings table has the class column
-$tableCheck = $db->query("SHOW COLUMNS FROM bookings LIKE 'class'");
-if ($tableCheck->rowCount() == 0) {
-    // Add the class column if it doesn't exist
-    $db->exec("ALTER TABLE bookings ADD COLUMN class VARCHAR(20) DEFAULT 'economy'");
-}
-
-$sql = "SELECT *, 
+$sql = "SELECT *,
         CASE 
             WHEN ? = 'economy' THEN economy_price 
             WHEN ? = 'business' THEN business_price 
@@ -67,54 +54,148 @@ $outbound_price = $flight['selected_price'];
 $return_price = $return_flight ? $return_flight['selected_price'] : 0;
 $total_price = ($outbound_price + $return_price) * $passengers;
 
+// Cancelled or already-departed flights cannot be booked
+// (server-side check, not just a hidden button)
+$booking_blocked = false;
+if ($flight['status'] === 'cancelled') {
+    $error_message = "This flight has been cancelled and cannot be booked.";
+    $booking_blocked = true;
+} elseif ($return_flight && $return_flight['status'] === 'cancelled') {
+    $error_message = "The selected return flight has been cancelled and cannot be booked.";
+    $booking_blocked = true;
+} elseif (strtotime($flight['departure_time']) <= time()
+    || in_array($flight['status'], ['departed', 'arrived'], true)) {
+    $error_message = "This flight has already departed and cannot be booked.";
+    $booking_blocked = true;
+} elseif ($return_flight && (strtotime($return_flight['departure_time']) <= time()
+    || in_array($return_flight['status'], ['departed', 'arrived'], true))) {
+    $error_message = "The selected return flight has already departed and cannot be booked.";
+    $booking_blocked = true;
+}
+
 // Process booking
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_booking'])) {
-    // Check if enough seats are available
-    if ($flight['available_seats'] < $passengers) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_booking']) && !$booking_blocked) {
+    csrf_verify();
+
+    // Validate the passenger detail rows server-side
+    $names     = $_POST['full_name']   ?? [];
+    $dobs      = $_POST['dob']         ?? [];
+    $genders   = $_POST['gender']      ?? [];
+    $passports = $_POST['passport_no'] ?? [];
+
+    $form_errors = [];
+    if (!is_array($names) || !is_array($dobs) || !is_array($genders) || !is_array($passports)
+        || count($names) !== $passengers || count($dobs) !== $passengers
+        || count($genders) !== $passengers || count($passports) > $passengers) {
+        $form_errors[] = "Passenger details do not match the number of passengers.";
+    } else {
+        $today = date('Y-m-d');
+        for ($i = 0; $i < $passengers; $i++) {
+            $label = "Passenger " . ($i + 1);
+            $name = trim($names[$i] ?? '');
+            $dob = trim($dobs[$i] ?? '');
+            $gender = $genders[$i] ?? '';
+            $passport = trim($passports[$i] ?? '');
+
+            if ($name === '' || mb_strlen($name) > 100) {
+                $form_errors[] = "$label: please enter a full name (max 100 characters).";
+            }
+            $dt = DateTime::createFromFormat('Y-m-d', $dob);
+            if (!$dt || $dt->format('Y-m-d') !== $dob || $dob >= $today) {
+                $form_errors[] = "$label: date of birth must be a valid date in the past.";
+            }
+            if (!in_array($gender, ['male', 'female', 'other'], true)) {
+                $form_errors[] = "$label: please select a gender.";
+            }
+            if (mb_strlen($passport) > 20) {
+                $form_errors[] = "$label: passport number is too long (max 20 characters).";
+            }
+        }
+    }
+
+    if ($form_errors) {
+        $error_message = implode(' ', $form_errors); // template escapes via e()
+    } elseif ($flight['available_seats'] < $passengers) {
         $error_message = "Not enough seats available on the outbound flight.";
     } elseif ($return_flight && $return_flight['available_seats'] < $passengers) {
         $error_message = "Not enough seats available on the return flight.";
     } else {
         try {
             $db->beginTransaction();
-            
-            // Create booking
-            $is_round_trip = $return_flight ? 1 : 0;
-            
+
             // Handle return_flight_id properly for one-way trips
             $return_flight_id = ($return_id > 0) ? $return_id : null;
-            
-            // Insert booking record
-            $stmt = $db->prepare("INSERT INTO bookings (user_id, flight_id, return_flight_id, passenger_count, total_price, is_round_trip, class) VALUES (?, ?, ?, ?, ?, ?, ?)");
+
+            // Insert booking record: pending until payment completes
+            $stmt = $db->prepare("INSERT INTO bookings (user_id, flight_id, return_flight_id, passenger_count, total_price, class, status) VALUES (?, ?, ?, ?, ?, ?, 'pending')");
             $stmt->execute([
                 $_SESSION['user_id'],
                 $flight_id,
                 $return_flight_id, // Will be NULL for one-way trips
                 $passengers,
                 $total_price,
-                $is_round_trip,
                 $class
             ]);
-            
+
             $booking_id = $db->lastInsertId();
-            
-            // Update available seats for outbound flight
-            $stmt = $db->prepare("UPDATE flights SET available_seats = available_seats - ? WHERE flight_id = ?");
-            $stmt->execute([$passengers, $flight_id]);
-            
-            // Update available seats for return flight if applicable
-            if ($return_flight) {
-                $stmt->execute([$passengers, $return_id]);
+
+            // Atomically decrement seats; the available_seats >= ? guard
+            // prevents overbooking when two requests race for the last seats
+            $stmt = $db->prepare("UPDATE flights SET available_seats = available_seats - ? WHERE flight_id = ? AND available_seats >= ?");
+            $stmt->execute([$passengers, $flight_id, $passengers]);
+            if ($stmt->rowCount() !== 1) {
+                $db->rollBack();
+                $error_message = "Not enough seats available on the outbound flight.";
+            } else {
+                $ok = true;
+                if ($return_flight) {
+                    $stmt->execute([$passengers, $return_id, $passengers]);
+                    if ($stmt->rowCount() !== 1) {
+                        $db->rollBack();
+                        $error_message = "Not enough seats available on the return flight.";
+                        $ok = false;
+                    }
+                }
+                if ($ok) {
+                    // One passengers row per traveler
+                    $pstmt = $db->prepare("INSERT INTO passengers (booking_id, full_name, dob, gender, passport_no) VALUES (?, ?, ?, ?, ?)");
+                    $passenger_ids = [];
+                    for ($i = 0; $i < $passengers; $i++) {
+                        $passport = trim($passports[$i] ?? '');
+                        $pstmt->execute([
+                            $booking_id,
+                            trim($names[$i]),
+                            trim($dobs[$i]),
+                            $genders[$i],
+                            $passport === '' ? null : $passport,
+                        ]);
+                        $passenger_ids[] = $db->lastInsertId();
+                    }
+
+                    // One ticket per passenger per leg. The fare is a
+                    // snapshot of this flight's class price right now:
+                    // future price edits must not change past tickets.
+                    $tstmt = $db->prepare("INSERT INTO tickets (booking_id, passenger_id, flight_id, seat_number, class, fare) VALUES (?, ?, ?, ?, ?, ?)");
+                    $legs = [[$flight_id, $outbound_price]];
+                    if ($return_flight) {
+                        $legs[] = [$return_id, $return_price];
+                    }
+                    foreach ($legs as $leg) {
+                        list($leg_flight_id, $leg_fare) = $leg;
+                        $seats = assignSeats($db, $leg_flight_id, $passengers);
+                        foreach ($passenger_ids as $i => $pid) {
+                            $tstmt->execute([$booking_id, $pid, $leg_flight_id, $seats[$i], $class, $leg_fare]);
+                        }
+                    }
+
+                    $db->commit();
+                    header("Location: payment.php?booking_id=" . $booking_id);
+                    exit;
+                }
             }
-            
-            $db->commit();
-            
-            // Redirect to booking confirmation
-            header("Location: booking_confirmation.php?booking_id=" . $booking_id);
-            exit;
         } catch (Exception $e) {
             $db->rollBack();
-            $error_message = "An error occurred while processing your booking: " . $e->getMessage();
+            $error_message = "An error occurred while processing your booking.";
         }
     }
 }
@@ -143,12 +224,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_booking'])) {
                 <?php if (isLoggedIn()): ?>
                 <li><a href="booking_history.php">Bookings</a></li>
                 <?php endif; ?>
+                <?php if (isLoggedIn() && isStaff()): ?>
+                <li><a href="staff/index.php">Staff Dashboard</a></li>
+                <?php endif; ?>
                 <?php if (isLoggedIn() && isAdmin()): ?>
-                <li><a href="admin/index.php">Employee Portal</a></li>
+                <li><a href="admin/index.php">Admin</a></li>
                 <?php endif; ?>
             </ul>
             <div class="auth-links">
-                <span>Welcome, <?php echo $_SESSION['first_name']; ?></span>
+                <span>Welcome, <?php echo e($_SESSION['first_name']); ?></span>
                 <a href="profile.php">My Profile</a>
                 <a href="booking_history.php">My Bookings</a>
                 <a href="logout.php">Logout</a>
@@ -162,7 +246,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_booking'])) {
                 <h1>Review and Confirm Your Booking</h1>
                 
                 <?php if (isset($error_message)): ?>
-                    <div class="alert alert-error"><?php echo $error_message; ?></div>
+                    <div class="alert alert-error"><?php echo e($error_message); ?></div>
                 <?php endif; ?>
                 
                 <div class="booking-summary">
@@ -173,15 +257,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_booking'])) {
                         <div class="flight-card">
                             <div class="flight-info">
                                 <div class="airline">
-                                    <span><?php echo $flight['airline']; ?></span>
-                                    <span class="flight-number"><?php echo $flight['flight_number']; ?></span>
+                                    <span><?php echo e($flight['airline']); ?></span>
+                                    <span class="flight-number"><?php echo e($flight['flight_number']); ?></span>
                                 </div>
                                 
                                 <div class="flight-times">
                                     <div class="departure">
                                         <div class="time"><?php echo date('H:i', strtotime($flight['departure_time'])); ?></div>
                                         <div class="date"><?php echo date('D, M d', strtotime($flight['departure_time'])); ?></div>
-                                        <div class="city"><?php echo $flight['departure_city']; ?></div>
+                                        <div class="city"><?php echo e($flight['departure_city']); ?></div>
                                     </div>
                                     
                                     <div class="flight-duration">
@@ -199,7 +283,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_booking'])) {
                                     <div class="arrival">
                                         <div class="time"><?php echo date('H:i', strtotime($flight['arrival_time'])); ?></div>
                                         <div class="date"><?php echo date('D, M d', strtotime($flight['arrival_time'])); ?></div>
-                                        <div class="city"><?php echo $flight['arrival_city']; ?></div>
+                                        <div class="city"><?php echo e($flight['arrival_city']); ?></div>
                                     </div>
                                 </div>
                             </div>
@@ -215,15 +299,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_booking'])) {
                             <div class="flight-card">
                                 <div class="flight-info">
                                     <div class="airline">
-                                        <span><?php echo $return_flight['airline']; ?></span>
-                                        <span class="flight-number"><?php echo $return_flight['flight_number']; ?></span>
+                                        <span><?php echo e($return_flight['airline']); ?></span>
+                                        <span class="flight-number"><?php echo e($return_flight['flight_number']); ?></span>
                                     </div>
                                     
                                     <div class="flight-times">
                                         <div class="departure">
                                             <div class="time"><?php echo date('H:i', strtotime($return_flight['departure_time'])); ?></div>
                                             <div class="date"><?php echo date('D, M d', strtotime($return_flight['departure_time'])); ?></div>
-                                            <div class="city"><?php echo $return_flight['departure_city']; ?></div>
+                                            <div class="city"><?php echo e($return_flight['departure_city']); ?></div>
                                         </div>
                                         
                                         <div class="flight-duration">
@@ -241,7 +325,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_booking'])) {
                                         <div class="arrival">
                                             <div class="time"><?php echo date('H:i', strtotime($return_flight['arrival_time'])); ?></div>
                                             <div class="date"><?php echo date('D, M d', strtotime($return_flight['arrival_time'])); ?></div>
-                                            <div class="city"><?php echo $return_flight['arrival_city']; ?></div>
+                                            <div class="city"><?php echo e($return_flight['arrival_city']); ?></div>
                                         </div>
                                     </div>
                                 </div>
@@ -282,60 +366,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_booking'])) {
                         </div>
                     </div>
                     
+                    <?php if (!$booking_blocked): ?>
                     <form action="" method="post">
-                        <h3>Passenger Information</h3>
-                        <p>Your booking will be made for <?php echo $_SESSION['first_name'] . ' ' . $_SESSION['last_name']; ?>.</p>
-                        
-                        <div class="form-group">
-                            <label for="special_requests">Special Requests (Optional)</label>
-                            <textarea id="special_requests" name="special_requests" class="form-control" rows="3"></textarea>
-                        </div>
-                        
-                        <h3>Payment Information</h3>
-                        <div class="payment-methods">
-                            <div class="payment-method">
-                                <input type="radio" id="credit_card" name="payment_method" value="credit_card" checked>
-                                <label for="credit_card">Credit Card</label>
-                            </div>
-                            <div class="payment-method">
-                                <input type="radio" id="paypal" name="payment_method" value="paypal">
-                                <label for="paypal">PayPal</label>
-                            </div>
-                        </div>
-                        
-                        <div id="credit_card_details">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="card_number">Card Number</label>
-                                    <input type="text" id="card_number" name="card_number" class="form-control" placeholder="1234 5678 9012 3456">
+                        <?php echo csrf_field(); ?>
+                        <h3>Passenger Details</h3>
+                        <p>Booked by <?php echo e($_SESSION['first_name'] . ' ' . $_SESSION['last_name']); ?>. Enter each traveler's details exactly as on their ID.</p>
+
+                        <?php for ($i = 0; $i < $passengers; $i++): ?>
+                            <fieldset class="passenger-fieldset">
+                                <legend>Passenger <?php echo $i + 1; ?></legend>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="full_name_<?php echo $i; ?>">Full Name</label>
+                                        <input type="text" id="full_name_<?php echo $i; ?>" name="full_name[]" class="form-control" maxlength="100" required
+                                               value="<?php echo e($_POST['full_name'][$i] ?? ''); ?>">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="dob_<?php echo $i; ?>">Date of Birth</label>
+                                        <input type="date" id="dob_<?php echo $i; ?>" name="dob[]" class="form-control" required
+                                               max="<?php echo date('Y-m-d', strtotime('-1 day')); ?>"
+                                               value="<?php echo e($_POST['dob'][$i] ?? ''); ?>">
+                                    </div>
                                 </div>
-                            </div>
-                            
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="card_name">Name on Card</label>
-                                    <input type="text" id="card_name" name="card_name" class="form-control">
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label for="gender_<?php echo $i; ?>">Gender</label>
+                                        <select id="gender_<?php echo $i; ?>" name="gender[]" class="form-control" required>
+                                            <option value="">Select&hellip;</option>
+                                            <?php foreach (['male' => 'Male', 'female' => 'Female', 'other' => 'Other'] as $gv => $gl): ?>
+                                                <option value="<?php echo $gv; ?>" <?php echo (($_POST['gender'][$i] ?? '') === $gv) ? 'selected' : ''; ?>><?php echo $gl; ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="passport_<?php echo $i; ?>">Passport No. (optional)</label>
+                                        <input type="text" id="passport_<?php echo $i; ?>" name="passport_no[]" class="form-control" maxlength="20"
+                                               value="<?php echo e($_POST['passport_no'][$i] ?? ''); ?>">
+                                    </div>
                                 </div>
-                            </div>
-                            
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="expiry_date">Expiry Date</label>
-                                    <input type="text" id="expiry_date" name="expiry_date" class="form-control" placeholder="MM/YY">
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label for="cvv">CVV</label>
-                                    <input type="text" id="cvv" name="cvv" class="form-control" placeholder="123">
-                                </div>
-                            </div>
-                        </div>
-                        
+                            </fieldset>
+                        <?php endfor; ?>
+
                         <div class="form-actions">
                             <a href="flights.php" class="btn btn-secondary">Back to Flights</a>
-                            <button type="submit" name="confirm_booking" class="btn btn-primary">Confirm Booking</button>
+                            <button type="submit" name="confirm_booking" class="btn btn-primary">Continue to Payment</button>
                         </div>
                     </form>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -401,20 +478,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_booking'])) {
         </div>
     </footer>
 
-    <script>
-        // Toggle payment method details
-        document.querySelectorAll('input[name="payment_method"]').forEach(function(radio) {
-            radio.addEventListener('change', function() {
-                document.getElementById('credit_card_details').style.display = 
-                    (this.value === 'credit_card') ? 'block' : 'none';
-            });
-        });
-        
-        // Form submission handling
-        document.querySelector('button[name="confirm_booking"]').addEventListener('click', function(e) {
-            // You can add form validation here if needed
-            document.querySelector('form').submit();
-        });
-    </script>
 </body>
 </html>

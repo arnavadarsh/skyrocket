@@ -9,7 +9,10 @@ $departure_date = isset($_GET['departure_date']) ? $_GET['departure_date'] : '';
 $return_date = isset($_GET['return_date']) ? $_GET['return_date'] : '';
 $trip_type = isset($_GET['trip_type']) ? $_GET['trip_type'] : 'round';
 $class = isset($_GET['class']) ? $_GET['class'] : 'economy';
-$passengers = isset($_GET['passengers']) ? intval($_GET['passengers']) : 1;
+if (!in_array($class, ['economy', 'business', 'first'], true)) {
+    $class = 'economy';
+}
+$passengers = max(1, min(9, isset($_GET['passengers']) ? intval($_GET['passengers']) : 1));
 
 // Filter parameters
 $min_price = isset($_GET['min_price']) ? floatval($_GET['min_price']) : 0;
@@ -91,10 +94,9 @@ if (!empty($from) && !empty($to) && !empty($departure_date)) {
     // Get return flights if round trip
     if ($trip_type === 'round' && !empty($return_date)) {
         // Use the same SQL but swap from/to cities and use return date
-        $stmt = $db->prepare(str_replace("departure_city LIKE ?", "departure_city LIKE :to", 
-                                         str_replace("arrival_city LIKE ?", "arrival_city LIKE :from", $sql)));
+        $stmt = $db->prepare($sql);
         
-        // Replace the first two parameters (from/to) with swapped values
+        // Replace the from/to and date parameters with swapped values
         $return_params = $params;
         $return_params[3] = "%$to%";  // from becomes to
         $return_params[4] = "%$from%"; // to becomes from
@@ -129,13 +131,16 @@ if (!empty($from) && !empty($to) && !empty($departure_date)) {
                 <?php if (isLoggedIn()): ?>
                 <li><a href="booking_history.php">Bookings</a></li>
                 <?php endif; ?>
+                <?php if (isLoggedIn() && isStaff()): ?>
+                <li><a href="staff/index.php">Staff Dashboard</a></li>
+                <?php endif; ?>
                 <?php if (isLoggedIn() && isAdmin()): ?>
-                <li><a href="admin/index.php">Employee Portal</a></li>
+                <li><a href="admin/index.php">Admin</a></li>
                 <?php endif; ?>
             </ul>
             <div class="auth-links">
                 <?php if (isLoggedIn()): ?>
-                <span>Welcome, <?php echo $_SESSION['first_name']; ?></span>
+                <span>Welcome, <?php echo e($_SESSION['first_name']); ?></span>
                 <a href="profile.php">My Profile</a>
                 <a href="booking_history.php">My Bookings</a>
                 <a href="logout.php">Logout</a>
@@ -158,7 +163,7 @@ if (!empty($from) && !empty($to) && !empty($departure_date)) {
                         <strong><?php echo htmlspecialchars($to); ?></strong>
                     </div>
                     <div class="trip-details">
-                        <span><?php echo ucfirst($trip_type); ?> Trip</span> | 
+                        <span><?php echo e(ucfirst($trip_type)); ?> Trip</span> | 
                         <span><?php echo ucfirst($class); ?> Class</span> | 
                         <span><?php echo $passengers; ?> Passenger<?php echo $passengers > 1 ? 's' : ''; ?></span>
                     </div>
@@ -211,8 +216,8 @@ if (!empty($from) && !empty($to) && !empty($departure_date)) {
                                         $checked = empty($airlines) || in_array($airline, $airlines) ? 'checked' : '';
                                     ?>
                                     <label>
-                                        <input type="checkbox" name="airline[]" value="<?php echo $airline; ?>" <?php echo $checked; ?>> 
-                                        <?php echo $airline; ?>
+                                        <input type="checkbox" name="airline[]" value="<?php echo e($airline); ?>" <?php echo $checked; ?>> 
+                                        <?php echo e($airline); ?>
                                     </label>
                                     <?php endforeach; ?>
                                 </div>
@@ -259,14 +264,15 @@ if (!empty($from) && !empty($to) && !empty($departure_date)) {
                                 <div class="flight-card" data-flight-id="<?php echo $flight['flight_id']; ?>">
                                     <div class="flight-info">
                                         <div class="airline">
-                                            <span><?php echo $flight['airline']; ?></span>
-                                            <span class="flight-number"><?php echo $flight['flight_number']; ?></span>
+                                            <span><?php echo e($flight['airline']); ?></span>
+                                            <?php echo statusBadge($flight['status']); ?>
+                                            <span class="flight-number"><?php echo e($flight['flight_number']); ?></span>
                                         </div>
                                         
                                         <div class="flight-times">
                                             <div class="departure">
                                                 <div class="time"><?php echo date('H:i', strtotime($flight['departure_time'])); ?></div>
-                                                <div class="city"><?php echo $flight['departure_city']; ?></div>
+                                                <div class="city"><?php echo e($flight['departure_city']); ?></div>
                                             </div>
                                             
                                             <div class="flight-duration">
@@ -283,7 +289,7 @@ if (!empty($from) && !empty($to) && !empty($departure_date)) {
                                             
                                             <div class="arrival">
                                                 <div class="time"><?php echo date('H:i', strtotime($flight['arrival_time'])); ?></div>
-                                                <div class="city"><?php echo $flight['arrival_city']; ?></div>
+                                                <div class="city"><?php echo e($flight['arrival_city']); ?></div>
                                             </div>
                                         </div>
                                     </div>
@@ -291,7 +297,11 @@ if (!empty($from) && !empty($to) && !empty($departure_date)) {
                                     <div class="flight-price">
                                         <div class="price">₹<?php echo number_format($flight['selected_price'], 2); ?></div>
                                         <div class="per-person">per person</div>
-                                        <a href="booking.php?flight_id=<?php echo $flight['flight_id']; ?>&return_id=<?php echo isset($selected_return) ? $selected_return : ''; ?>&passengers=<?php echo $passengers; ?>&class=<?php echo $class; ?>" class="btn btn-select">Select</a>
+                                        <?php if ($flight['status'] === 'cancelled'): ?>
+                                            <span class="btn btn-select btn-disabled">Unavailable</span>
+                                        <?php else: ?>
+                                            <a href="booking.php?flight_id=<?php echo $flight['flight_id']; ?>&return_id=<?php echo isset($selected_return) ? $selected_return : ''; ?>&passengers=<?php echo $passengers; ?>&class=<?php echo $class; ?>" class="btn btn-select">Select</a>
+                                        <?php endif; ?>
                                     </div>
                                 </div>
                             <?php endforeach; ?>
@@ -306,14 +316,15 @@ if (!empty($from) && !empty($to) && !empty($departure_date)) {
                                     <div class="flight-card" data-flight-id="<?php echo $flight['flight_id']; ?>">
                                         <div class="flight-info">
                                             <div class="airline">
-                                                <span><?php echo $flight['airline']; ?></span>
-                                                <span class="flight-number"><?php echo $flight['flight_number']; ?></span>
+                                                <span><?php echo e($flight['airline']); ?></span>
+                                            <?php echo statusBadge($flight['status']); ?>
+                                                <span class="flight-number"><?php echo e($flight['flight_number']); ?></span>
                                             </div>
                                             
                                             <div class="flight-times">
                                                 <div class="departure">
                                                     <div class="time"><?php echo date('H:i', strtotime($flight['departure_time'])); ?></div>
-                                                    <div class="city"><?php echo $flight['departure_city']; ?></div>
+                                                    <div class="city"><?php echo e($flight['departure_city']); ?></div>
                                                 </div>
                                                 
                                                 <div class="flight-duration">
@@ -330,7 +341,7 @@ if (!empty($from) && !empty($to) && !empty($departure_date)) {
                                                 
                                                 <div class="arrival">
                                                     <div class="time"><?php echo date('H:i', strtotime($flight['arrival_time'])); ?></div>
-                                                    <div class="city"><?php echo $flight['arrival_city']; ?></div>
+                                                    <div class="city"><?php echo e($flight['arrival_city']); ?></div>
                                                 </div>
                                             </div>
                                         </div>
@@ -338,7 +349,11 @@ if (!empty($from) && !empty($to) && !empty($departure_date)) {
                                         <div class="flight-price">
                                             <div class="price">₹<?php echo number_format($flight['selected_price'], 2); ?></div>
                                             <div class="per-person">per person</div>
-                                            <a href="booking.php?flight_id=<?php echo isset($selected_outbound) ? $selected_outbound : ''; ?>&return_id=<?php echo $flight['flight_id']; ?>&passengers=<?php echo $passengers; ?>&class=<?php echo $class; ?>" class="btn btn-select">Select</a>
+                                            <?php if ($flight['status'] === 'cancelled'): ?>
+                                                <span class="btn btn-select btn-disabled">Unavailable</span>
+                                            <?php else: ?>
+                                                <a href="booking.php?flight_id=<?php echo isset($selected_outbound) ? $selected_outbound : ''; ?>&return_id=<?php echo $flight['flight_id']; ?>&passengers=<?php echo $passengers; ?>&class=<?php echo $class; ?>" class="btn btn-select">Select</a>
+                                            <?php endif; ?>
                                         </div>
                                     </div>
                                 <?php endforeach; ?>
@@ -469,12 +484,12 @@ if (!empty($from) && !empty($to) && !empty($departure_date)) {
         
         // Initialize with any pre-selected flights
         <?php if (!empty($outbound_flights) && isset($_GET['selected_outbound'])): ?>
-        window.selectedOutbound = '<?php echo $_GET['selected_outbound']; ?>';
+        window.selectedOutbound = '<?php echo intval($_GET['selected_outbound']); ?>';
         document.querySelector(`.flight-card[data-flight-id="${window.selectedOutbound}"]`)?.classList.add('selected');
         <?php endif; ?>
         
         <?php if (!empty($return_flights) && isset($_GET['selected_return'])): ?>
-        window.selectedReturn = '<?php echo $_GET['selected_return']; ?>';
+        window.selectedReturn = '<?php echo intval($_GET['selected_return']); ?>';
         document.querySelector(`.flight-card[data-flight-id="${window.selectedReturn}"]`)?.classList.add('selected');
         <?php endif; ?>
         

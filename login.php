@@ -15,19 +15,7 @@ $error = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $username = $_POST['username'] ?? '';
     $password = $_POST['password'] ?? '';
-    
-    // Hard-coded admin check
-    if ($username === 'admin' && $password === 'admin1') {
-        // Set admin session variables
-        $_SESSION['user_id'] = 1; // Or any ID you want to assign
-        $_SESSION['username'] = 'admin';
-        $_SESSION['first_name'] = 'Admin';
-        $_SESSION['last_name'] = 'User';
-        $_SESSION['is_admin'] = 1;
-        // Redirect to admin dashboard or home page
-        header("Location: index.php");
-        exit;
-    }
+
     if (empty($username) || empty($password)) {
         $error = "Please enter both username and password.";
     } else {
@@ -42,10 +30,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['username'] = $user['username'];
             $_SESSION['first_name'] = $user['first_name'];
             $_SESSION['last_name'] = $user['last_name'];
-            $_SESSION['is_admin'] = $user['is_admin'];
-            
-            // Redirect to home page
-            header("Location: index.php");
+            $_SESSION['role'] = $user['role'];
+
+            // Land each role on its workspace
+            if ($user['role'] === 'admin') {
+                header("Location: admin/index.php");
+            } elseif ($user['role'] === 'staff') {
+                header("Location: staff/index.php");
+            } else {
+                header("Location: index.php");
+            }
             exit;
         } else {
             $error = "Invalid username or password.";
@@ -139,8 +133,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <?php if (isLoggedIn()): ?>
                 <li><a href="booking_history.php">Bookings</a></li>
                 <?php endif; ?>
+                <?php if (isLoggedIn() && isStaff()): ?>
+                <li><a href="staff/index.php">Staff Dashboard</a></li>
+                <?php endif; ?>
                 <?php if (isLoggedIn() && isAdmin()): ?>
-                <li><a href="admin/index.php">Employee Portal</a></li>
+                <li><a href="admin/index.php">Admin</a></li>
                 <?php endif; ?>
             </ul>
             <div class="auth-links">
@@ -158,7 +155,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             
             <?php if ($error): ?>
-                <div class="alert alert-error"><?php echo $error; ?></div>
+                <div class="alert alert-error"><?php echo e($error); ?></div>
             <?php endif; ?>
             
             <form method="post" class="login-form">

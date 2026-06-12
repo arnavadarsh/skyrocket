@@ -1731,3 +1731,85 @@ footer {
         width: 100%;
     }
 }
+
+/* Flight/booking status badges (Week 1) */
+.status-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    vertical-align: middle;
+}
+.status-scheduled { background-color: #d4edda; color: #155724; }
+.status-boarding  { background-color: #cce5ff; color: #004085; }
+.status-delayed   { background-color: #fff3cd; color: #856404; }
+.status-departed  { background-color: #e2e3e5; color: #383d41; }
+.status-arrived   { background-color: #e2e3e5; color: #383d41; }
+.status-cancelled { background-color: #f8d7da; color: #721c24; }
+
+.btn-disabled {
+    background-color: #ccc !important;
+    color: #666 !important;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.booking-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+.booking-actions .btn-danger {
+    background-color: #dc3545;
+    color: #fff;
+    border: none;
+    cursor: pointer;
+}
+.booking-actions .btn-danger:hover { background-color: #b02a37; }
+
+.status-form {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+}
+.status-form .status-select { width: auto; padding: 4px 6px; }
+
+/* Passenger details form (Week 2) */
+.passenger-fieldset {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 15px 20px;
+    margin-bottom: 20px;
+}
+.passenger-fieldset legend {
+    font-weight: 600;
+    padding: 0 8px;
+}
+
+/* Payment page (Week 2) */
+.tickets-table { margin-bottom: 10px; }
+.payment-note { color: #666; font-size: 0.9rem; margin: 10px 0; }
+
+/* Staff flight detail (Week 3) */
+.luggage-block {
+    border-top: 1px solid #eee;
+    padding-top: 12px;
+    margin-top: 12px;
+}
+.luggage-block h3 {
+    font-size: 1rem;
+    margin-bottom: 8px;
+}
+
+/* Gate + luggage on passenger pages (Week 3) */
+.gate-info {
+    margin: -10px 0 15px;
+    color: #555;
+}
+.luggage-line {
+    white-space: nowrap;
+    margin-bottom: 4px;
+}

@@ -16,16 +16,13 @@ $users_count = $stmt->fetchColumn();
 $stmt = $db->query("SELECT COUNT(*) FROM flights");
 $flights_count = $stmt->fetchColumn();
 
-// Update this query to handle the case where total_price might be NULL
-$stmt = $db->query("
-    SELECT b.booking_id, u.username, f.flight_number, b.booking_date, b.total_price
-    FROM bookings b
-    JOIN users u ON b.user_id = u.user_id
-    JOIN flights f ON b.flight_id = f.flight_id
-    ORDER BY b.booking_date DESC
-    LIMIT 5
-");
-$total_revenue = $stmt->fetchColumn() ?: 0;
+// Revenue = sum of completed payments (refunded payments don't count)
+$stmt = $db->query("SELECT COALESCE(SUM(amount), 0) FROM payments WHERE status = 'completed'");
+$total_revenue = $stmt->fetchColumn();
+
+// Bookings awaiting payment
+$stmt = $db->query("SELECT COUNT(*) FROM bookings WHERE status = 'pending'");
+$pending_payments = $stmt->fetchColumn();
 ?>
 
 <!DOCTYPE html>
@@ -52,10 +49,12 @@ $total_revenue = $stmt->fetchColumn() ?: 0;
                 <li><a href="bookings.php">Bookings</a></li>
                 <li><a href="users.php">Users</a></li>
                 <li><a href="flights.php">Flights</a></li>
+                <li><a href="aircraft.php">Aircraft</a></li>
+                <li><a href="employees.php">Employees</a></li>
                 <li><a href="custom_query.php">Custom Query</a></li>
             </ul>
             <div class="auth-links">
-                <span>Welcome, <?php echo $_SESSION['first_name']; ?></span>
+                <span>Welcome, <?php echo e($_SESSION['first_name']); ?></span>
                 <a href="../logout.php">Logout</a>
             </div>
         </nav>
@@ -84,6 +83,11 @@ $total_revenue = $stmt->fetchColumn() ?: 0;
                 <div class="stat-card">
                     <h3>Total Revenue</h3>
                     <div class="stat-number">₹<?php echo number_format($total_revenue, 2); ?></div>
+                </div>
+
+                <div class="stat-card">
+                    <h3>Pending Payments</h3>
+                    <div class="stat-number"><?php echo $pending_payments; ?></div>
                 </div>
             </div>
             
@@ -119,6 +123,7 @@ $total_revenue = $stmt->fetchColumn() ?: 0;
                                 <th>User</th>
                                 <th>Flight</th>
                                 <th>Class</th>
+                                <th>Status</th>
                                 <th>Date</th>
                                 <th>Price</th>
                                 <th>Action</th>
@@ -128,8 +133,8 @@ $total_revenue = $stmt->fetchColumn() ?: 0;
                             <?php
                             // Updated query to include class information from bookings
                             $stmt = $db->query("
-                                SELECT b.booking_id, u.username, f.flight_number, b.booking_date, b.total_price,
-                                       CASE 
+                                SELECT b.booking_id, u.username, f.flight_number, b.booking_date, b.total_price, b.status,
+                                       CASE
                                            WHEN b.class = 'economy' THEN 'Economy'
                                            WHEN b.class = 'business' THEN 'Business'
                                            WHEN b.class = 'first' THEN 'First'
@@ -151,6 +156,7 @@ $total_revenue = $stmt->fetchColumn() ?: 0;
                                     <td><?php echo htmlspecialchars($booking['username']); ?></td>
                                     <td><?php echo htmlspecialchars($booking['flight_number']); ?></td>
                                     <td><?php echo htmlspecialchars($booking['class_type'] ?? 'Economy'); ?></td>
+                                    <td><?php echo $booking['status'] === 'cancelled' ? '<span class="status-badge status-cancelled">Cancelled</span>' : '<span class="status-badge status-scheduled">Confirmed</span>'; ?></td>
                                     <td><?php echo date('M d, Y', strtotime($booking['booking_date'])); ?></td>
                                     <td>₹<?php echo number_format($booking['total_price'], 2); ?></td>
                                     <td><a href="bookings.php?id=<?php echo $booking['booking_id']; ?>" class="btn btn-sm">View</a></td>
@@ -160,7 +166,7 @@ $total_revenue = $stmt->fetchColumn() ?: 0;
                             else:
                             ?>
                                 <tr>
-                                    <td colspan="7" class="text-center">No bookings found</td>
+                                    <td colspan="8" class="text-center">No bookings found</td>
                                 </tr>
                             <?php endif; ?>
                         </tbody>

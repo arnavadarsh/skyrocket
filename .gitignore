@@ -1,0 +1,8 @@
+# Local credentials — copy includes/config.example.php to includes/config.php
+includes/config.php
+
+# Claude Code local state
+.claude/
+
+# OS noise
+.DS_Store

@@ -27,13 +27,16 @@
         <?php if (isLoggedIn()): ?>
         <li><a href="booking_history.php">Bookings</a></li>
         <?php endif; ?>
+        <?php if (isLoggedIn() && isStaff()): ?>
+        <li><a href="staff/index.php">Staff Dashboard</a></li>
+        <?php endif; ?>
         <?php if (isLoggedIn() && isAdmin()): ?>
-        <li><a href="admin/index.php">Employee Portal</a></li>
+        <li><a href="admin/index.php">Admin</a></li>
         <?php endif; ?>
     </ul>
     <div class="auth-links">
         <?php if (isLoggedIn()): ?>
-        <span>Welcome, <?php echo $_SESSION['first_name']; ?></span>
+        <span>Welcome, <?php echo e($_SESSION['first_name']); ?></span>
         <a href="profile.php">My Profile</a>
         <a href="booking_history.php">My Bookings</a>
         <a href="logout.php">Logout</a>
