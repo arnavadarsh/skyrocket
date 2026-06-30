@@ -21,7 +21,7 @@ app.set('views', path.join(__dirname, 'views'));
 app.use(express.urlencoded({ extended: true }));
 
 // Reuse the existing front-end assets (redesigned CSS/JS + images).
-app.use('/assets', express.static(path.join(__dirname, '..', 'assets')));
+app.use('/assets', express.static(path.join(__dirname, 'assets')));
 
 app.use(session({
     secret: process.env.SESSION_SECRET || 'skyconnect-dev-secret',

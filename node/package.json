@@ -5,6 +5,7 @@
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
+    "postinstall": "cp -r ../assets ./assets 2>/dev/null || true",
     "start": "node server.js",
     "dev": "node --watch server.js"
   },
