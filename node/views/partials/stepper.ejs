@@ -1,0 +1,6 @@
+<% var _step = typeof step !== 'undefined' ? step : 1; %>
+<div class="stepper">
+    <% [['Search', 1], ['Passengers', 2], ['Payment', 3], ['Confirmed', 4]].forEach(function (s) { %>
+        <div class="step <%= _step > s[1] ? 'done' : (_step === s[1] ? 'active' : '') %>"><%= s[0] %></div>
+    <% }) %>
+</div>

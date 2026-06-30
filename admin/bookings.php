@@ -28,22 +28,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['cancel_booking']) && 
             $db->rollBack();
             $error_message = "Booking #$booking_id is already cancelled.";
         } else {
-            $stmt = $db->prepare("UPDATE bookings SET status = 'cancelled' WHERE booking_id = ?");
+            // The whole cancel cascade lives in the stored procedure:
+            // tickets cancelled + seats freed (via trigger, once per
+            // ticket), completed payment refunded, booking cancelled
+            $stmt = $db->prepare("CALL sp_cancel_booking(?)");
             $stmt->execute([$booking_id]);
-
-            // Cancel tickets; NULL frees each seat under UNIQUE(flight_id, seat_number)
-            $stmt = $db->prepare("UPDATE tickets SET status = 'cancelled', seat_number = NULL WHERE booking_id = ?");
-            $stmt->execute([$booking_id]);
-
-            // Refund if paid (writes nothing for unpaid pending bookings)
-            $stmt = $db->prepare("UPDATE payments SET status = 'refunded' WHERE booking_id = ? AND status = 'completed'");
-            $stmt->execute([$booking_id]);
-
-            $stmt = $db->prepare("UPDATE flights SET available_seats = available_seats + ? WHERE flight_id = ?");
-            $stmt->execute([$booking['passenger_count'], $booking['flight_id']]);
-            if ($booking['return_flight_id']) {
-                $stmt->execute([$booking['passenger_count'], $booking['return_flight_id']]);
-            }
+            $stmt->closeCursor();
 
             $db->commit();
             $success_message = "Booking #$booking_id has been cancelled (tickets released, refund issued where applicable).";
@@ -103,6 +93,7 @@ $bookings = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <li><a href="flights.php">Flights</a></li>
                 <li><a href="aircraft.php">Aircraft</a></li>
                 <li><a href="employees.php">Employees</a></li>
+                <li><a href="reports.php">Reports</a></li>
                 <li><a href="custom_query.php">Custom Query</a></li>
             </ul>
             <div class="auth-links">

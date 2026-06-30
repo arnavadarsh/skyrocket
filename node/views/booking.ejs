@@ -1,0 +1,213 @@
+<%- include('partials/header') %>
+<%
+  // Renders one cabin seat grid; `taken` is an array like ['12A','3C'].
+  function seatGrid(taken) {
+    var takenSet = {};
+    (taken || []).forEach(function (s) { takenSet[s] = true; });
+    var letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+    var html = '<div class="cabin">';
+    for (var r = 1; r <= 30; r++) {
+      html += '<div class="seat-row"><span class="row-no">' + r + '</span>';
+      letters.forEach(function (L, idx) {
+        if (idx === 3) html += '<span class="aisle"></span>';
+        var code = r + L;
+        var taken = takenSet[code];
+        html += '<span class="seat ' + (taken ? 'taken' : 'free') + '" data-seat="' + code + '">' + L + '</span>';
+      });
+      html += '</div>';
+    }
+    return html + '</div>';
+  }
+%>
+<main>
+    <div class="container">
+        <div class="booking-container">
+            <h1>Review and Confirm Your Booking</h1>
+            <%- include('partials/stepper', { step: 2 }) %>
+
+            <% if (error_message) { %>
+                <div class="alert alert-error"><%= error_message %></div>
+            <% } %>
+
+            <div class="booking-summary">
+                <h2>Flight Details</h2>
+
+                <div class="flight-details">
+                    <h3>Outbound Flight</h3>
+                    <div class="flight-card">
+                        <div class="flight-info">
+                            <div class="airline">
+                                <span><%= flight.airline %></span>
+                                <span class="flight-number"><%= flight.flight_number %></span>
+                            </div>
+                            <div class="flight-times">
+                                <div class="departure">
+                                    <div class="time"><%= h.phpDate('H:i', flight.departure_time) %></div>
+                                    <div class="date"><%= h.phpDate('D, M d', flight.departure_time) %></div>
+                                    <div class="city"><%= flight.departure_city %></div>
+                                </div>
+                                <div class="flight-duration">
+                                    <div class="duration-line"></div>
+                                    <div class="duration-time"><%= h.durationHM(flight.departure_time, flight.arrival_time) %></div>
+                                </div>
+                                <div class="arrival">
+                                    <div class="time"><%= h.phpDate('H:i', flight.arrival_time) %></div>
+                                    <div class="date"><%= h.phpDate('D, M d', flight.arrival_time) %></div>
+                                    <div class="city"><%= flight.arrival_city %></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flight-price">
+                            <div class="price">&#8377;<%= h.nf2(outbound_price) %></div>
+                            <div class="per-person">per person</div>
+                        </div>
+                    </div>
+
+                    <% if (return_flight) { %>
+                        <h3>Return Flight</h3>
+                        <div class="flight-card">
+                            <div class="flight-info">
+                                <div class="airline">
+                                    <span><%= return_flight.airline %></span>
+                                    <span class="flight-number"><%= return_flight.flight_number %></span>
+                                </div>
+                                <div class="flight-times">
+                                    <div class="departure">
+                                        <div class="time"><%= h.phpDate('H:i', return_flight.departure_time) %></div>
+                                        <div class="date"><%= h.phpDate('D, M d', return_flight.departure_time) %></div>
+                                        <div class="city"><%= return_flight.departure_city %></div>
+                                    </div>
+                                    <div class="flight-duration">
+                                        <div class="duration-line"></div>
+                                        <div class="duration-time"><%= h.durationHM(return_flight.departure_time, return_flight.arrival_time) %></div>
+                                    </div>
+                                    <div class="arrival">
+                                        <div class="time"><%= h.phpDate('H:i', return_flight.arrival_time) %></div>
+                                        <div class="date"><%= h.phpDate('D, M d', return_flight.arrival_time) %></div>
+                                        <div class="city"><%= return_flight.arrival_city %></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flight-price">
+                                <div class="price">&#8377;<%= h.nf2(return_price) %></div>
+                                <div class="per-person">per person</div>
+                            </div>
+                        </div>
+                    <% } %>
+                </div>
+
+                <div class="booking-details">
+                    <h3>Booking Summary</h3>
+                    <div class="booking-info">
+                        <div class="booking-row">
+                            <span>Class:</span>
+                            <span><%= h.ucfirst(cabin) %></span>
+                        </div>
+                        <div class="booking-row">
+                            <span>Passengers:</span>
+                            <span><%= passengers %></span>
+                        </div>
+                        <div class="booking-row">
+                            <span>Outbound Flight:</span>
+                            <span>&#8377;<%= h.nf2(outbound_price) %> &times; <%= passengers %></span>
+                        </div>
+                        <% if (return_flight) { %>
+                            <div class="booking-row">
+                                <span>Return Flight:</span>
+                                <span>&#8377;<%= h.nf2(return_price) %> &times; <%= passengers %></span>
+                            </div>
+                        <% } %>
+                        <div class="booking-row total">
+                            <span>Total Price:</span>
+                            <span>&#8377;<%= h.nf2(total_price) %></span>
+                        </div>
+                    </div>
+                </div>
+
+                <% if (!booking_blocked) { %>
+                <form action="<%= formAction %>" method="post">
+                    <%- csrf_field() %>
+                    <h3>Passenger Details</h3>
+                    <p>Booked by <%= session.first_name %> <%= session.last_name %>. Enter each traveler's details exactly as on their ID.</p>
+
+                    <% for (let i = 0; i < passengers; i++) { %>
+                        <fieldset class="passenger-fieldset">
+                            <legend>Passenger <%= i + 1 %></legend>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="full_name_<%= i %>">Full Name</label>
+                                    <input type="text" id="full_name_<%= i %>" name="full_name[]" class="form-control" maxlength="100" required
+                                           value="<%= (old.full_name && old.full_name[i]) || '' %>">
+                                </div>
+                                <div class="form-group">
+                                    <label for="dob_<%= i %>">Date of Birth</label>
+                                    <input type="date" id="dob_<%= i %>" name="dob[]" class="form-control" required
+                                           max="<%= maxDob %>"
+                                           value="<%= (old.dob && old.dob[i]) || '' %>">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="gender_<%= i %>">Gender</label>
+                                    <select id="gender_<%= i %>" name="gender[]" class="form-control" required>
+                                        <option value="">Select&hellip;</option>
+                                        <% [['male','Male'],['female','Female'],['other','Other']].forEach(function(g) { %>
+                                            <option value="<%= g[0] %>" <%= (old.gender && old.gender[i]) === g[0] ? 'selected' : '' %>><%= g[1] %></option>
+                                        <% }) %>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="passport_<%= i %>">Passport No. (optional)</label>
+                                    <input type="text" id="passport_<%= i %>" name="passport_no[]" class="form-control" maxlength="20"
+                                           value="<%= (old.passport_no && old.passport_no[i]) || '' %>">
+                                </div>
+                            </div>
+                        </fieldset>
+                    <% } %>
+
+                    <h3>Choose Your Seats <span style="font-weight:500;color:var(--muted);font-size:.9rem">(optional — we'll auto-assign otherwise)</span></h3>
+                    <input type="hidden" name="seats_outbound" id="seats-outbound">
+                    <div class="seatmap-wrap">
+                        <div class="seatmap-head">
+                            <h4>Outbound &mdash; <%= flight.departure_city %> to <%= flight.arrival_city %></h4>
+                            <div class="seat-legend">
+                                <span><i class="seat-swatch sw-free"></i> Available</span>
+                                <span><i class="seat-swatch sw-sel"></i> Selected</span>
+                                <span><i class="seat-swatch sw-taken"></i> Taken</span>
+                            </div>
+                        </div>
+                        <div class="seatmap" data-need="<%= passengers %>" data-input="seats-outbound">
+                            <%- seatGrid(taken_outbound) %>
+                        </div>
+                        <p class="seat-hint"><strong class="seat-count">0</strong> / <%= passengers %> seats selected</p>
+                    </div>
+
+                    <% if (return_flight) { %>
+                    <input type="hidden" name="seats_return" id="seats-return">
+                    <div class="seatmap-wrap">
+                        <div class="seatmap-head">
+                            <h4>Return &mdash; <%= return_flight.departure_city %> to <%= return_flight.arrival_city %></h4>
+                            <div class="seat-legend">
+                                <span><i class="seat-swatch sw-free"></i> Available</span>
+                                <span><i class="seat-swatch sw-sel"></i> Selected</span>
+                                <span><i class="seat-swatch sw-taken"></i> Taken</span>
+                            </div>
+                        </div>
+                        <div class="seatmap" data-need="<%= passengers %>" data-input="seats-return">
+                            <%- seatGrid(taken_return) %>
+                        </div>
+                        <p class="seat-hint"><strong class="seat-count">0</strong> / <%= passengers %> seats selected</p>
+                    </div>
+                    <% } %>
+
+                    <div class="form-actions">
+                        <a href="/flights" class="btn btn-secondary">Back to Flights</a>
+                        <button type="submit" name="confirm_booking" value="1" class="btn btn-primary">Continue to Payment</button>
+                    </div>
+                </form>
+                <% } %>
+            </div>
+        </div>
+    </div>
+</main>
+<%- include('partials/footer') %>

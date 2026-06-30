@@ -1,0 +1,151 @@
+<%- include('../partials/staff_header') %>
+<%
+function ticketStatusBadge(status) {
+    var map = { confirmed: 'scheduled', checked_in: 'boarding', cancelled: 'cancelled' };
+    var cls = map[status] || 'scheduled';
+    return '<span class="status-badge status-' + cls + '">' + h.ucfirst(String(status).replace('_', ' ')) + '</span>';
+}
+%>
+<div class="admin-container">
+    <p><a href="/staff">&larr; Back to dashboard</a></p>
+    <h1>
+        <%= flight.flight_number %> &mdash;
+        <%= flight.departure_city %> &rarr; <%= flight.arrival_city %>
+        <%- h.statusBadge(flight.status) %>
+    </h1>
+    <p>
+        Departs <%= h.phpDate('D, M d, Y H:i', flight.departure_time) %> |
+        Gate: <%= flight.gate_id ? (flight.terminal + '-' + flight.gate_number) : 'TBA' %> |
+        Aircraft: <%= flight.aircraft_model ? (flight.aircraft_model + ' (' + flight.capacity + ' seats)') : '—' %> |
+        Seats left: <%= flight.available_seats %>
+    </p>
+
+    <%- include('../partials/messages') %>
+
+    <!-- Crew -->
+    <div class="admin-card">
+        <h2>Crew</h2>
+        <% if (crew.length > 0) { %>
+            <table class="admin-table">
+                <thead><tr><th>Name</th><th>Role</th><th>Shift</th><th></th></tr></thead>
+                <tbody>
+                    <% crew.forEach(function(m) { %>
+                        <tr>
+                            <td><%= m.full_name %></td>
+                            <td><%= roleLabel(m.role) %></td>
+                            <td><%= h.ucfirst(m.shift) %></td>
+                            <td>
+                                <% if (!crew_locked) { %>
+                                    <form action="<%= detailAction %>" method="post" style="display:inline" onsubmit="return confirm('Remove this crew member from the flight?')">
+                                        <%- csrf_field() %>
+                                        <button type="submit" name="remove_assignment" value="<%= m.assignment_id %>" class="btn btn-danger btn-sm">Remove</button>
+                                    </form>
+                                <% } %>
+                            </td>
+                        </tr>
+                    <% }) %>
+                </tbody>
+            </table>
+        <% } else { %>
+            <p>No crew assigned to this flight yet.</p>
+        <% } %>
+
+        <% if (!crew_locked && unassigned.length > 0) { %>
+            <form action="<%= detailAction %>" method="post" class="status-form" style="margin-top:15px">
+                <%- csrf_field() %>
+                <select name="employee_id" class="form-control" style="max-width:350px">
+                    <% unassigned.forEach(function(em) { %>
+                        <option value="<%= em.employee_id %>"><%= em.full_name %> — <%= roleLabel(em.role) %> (<%= em.shift %>)</option>
+                    <% }) %>
+                </select>
+                <button type="submit" name="assign_employee" value="1" class="btn btn-primary btn-sm">Assign</button>
+            </form>
+        <% } else if (crew_locked) { %>
+            <p><em>Crew changes are locked: this flight is <%= flight.status %>.</em></p>
+        <% } %>
+    </div>
+
+    <!-- Passengers / tickets -->
+    <div class="admin-card">
+        <h2>Passengers &amp; Tickets</h2>
+        <% if (tickets.length > 0) { %>
+            <table class="admin-table">
+                <thead><tr><th>Passenger</th><th>Booking</th><th>Seat</th><th>Class</th><th>Ticket Status</th><th></th></tr></thead>
+                <tbody>
+                    <% tickets.forEach(function(t) { %>
+                        <tr>
+                            <td><%= t.full_name %></td>
+                            <td>
+                                #SKY<%= h.pad6(t.booking_id) %>
+                                <% if (t.booking_status === 'pending') { %><span class="status-badge status-delayed">Unpaid</span>
+                                <% } else if (t.booking_status === 'cancelled') { %><span class="status-badge status-cancelled">Cancelled</span><% } %>
+                            </td>
+                            <td><%= t.seat_number || '—' %></td>
+                            <td><%= h.ucfirst(t.class) %></td>
+                            <td><%- ticketStatusBadge(t.ticket_status) %></td>
+                            <td>
+                                <% if (t.ticket_status === 'confirmed' && t.booking_status === 'confirmed') { %>
+                                    <form action="<%= detailAction %>" method="post" style="display:inline">
+                                        <%- csrf_field() %>
+                                        <button type="submit" name="check_in" value="<%= t.ticket_id %>" class="btn btn-sm">Check in</button>
+                                    </form>
+                                <% } %>
+                            </td>
+                        </tr>
+                    <% }) %>
+                </tbody>
+            </table>
+        <% } else { %>
+            <p>No tickets on this flight yet.</p>
+        <% } %>
+    </div>
+
+    <!-- Luggage -->
+    <div class="admin-card">
+        <h2>Luggage</h2>
+        <% if (checked_in_tickets.length > 0) { %>
+            <% checked_in_tickets.forEach(function(t) { %>
+                <div class="luggage-block">
+                    <h3><%= t.full_name %> — seat <%= t.seat_number || '—' %></h3>
+                    <% var bags = luggage_by_ticket[t.ticket_id]; %>
+                    <% if (bags && bags.length) { %>
+                        <table class="admin-table">
+                            <thead><tr><th>Bag</th><th>Weight</th><th>Status</th><th></th></tr></thead>
+                            <tbody>
+                                <% bags.forEach(function(bag) { %>
+                                    <tr>
+                                        <td>#<%= bag.luggage_id %></td>
+                                        <td><%= h.nf2(bag.weight) %> kg</td>
+                                        <td>
+                                            <form action="<%= detailAction %>" method="post" class="status-form">
+                                                <%- csrf_field() %>
+                                                <input type="hidden" name="luggage_id" value="<%= bag.luggage_id %>">
+                                                <select name="luggage_status" class="form-control status-select">
+                                                    <% luggage_statuses.forEach(function(ls) { %><option value="<%= ls %>" <%= bag.status === ls ? 'selected' : '' %>><%= h.ucfirst(ls.replace('_',' ')) %></option><% }) %>
+                                                </select>
+                                                <button type="submit" name="update_luggage" value="1" class="btn btn-sm">Update</button>
+                                            </form>
+                                        </td>
+                                        <td></td>
+                                    </tr>
+                                <% }) %>
+                            </tbody>
+                        </table>
+                    <% } else { %>
+                        <p>No luggage yet.</p>
+                    <% } %>
+
+                    <form action="<%= detailAction %>" method="post" class="status-form">
+                        <%- csrf_field() %>
+                        <input type="hidden" name="ticket_id" value="<%= t.ticket_id %>">
+                        <input type="number" name="weight" class="form-control" style="width:130px" step="0.1" min="0.1" max="32" placeholder="kg" required>
+                        <button type="submit" name="add_luggage" value="1" class="btn btn-primary btn-sm">Add luggage</button>
+                    </form>
+                </div>
+            <% }) %>
+        <% } else { %>
+            <p>No checked-in tickets yet — check passengers in above to add luggage.</p>
+        <% } %>
+    </div>
+</div>
+<%- include('../partials/console_footer') %>

@@ -1,0 +1,110 @@
+<%- include('partials/header') %>
+
+<div class="hero-container">
+    <div class="hero">
+        <span class="cloud c1"></span>
+        <span class="cloud c2"></span>
+        <span class="cloud c3"></span>
+        <svg class="flightpath" viewBox="0 0 600 400" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <path id="heroRoute" class="trail" d="M-40 330 C 120 300, 230 250, 350 190 S 560 70, 660 24"/>
+            <g>
+                <path class="plane" d="M2.5 19 L21 12 L2.5 5 L2.5 10.5 L15 12 L2.5 13.5 Z" transform="translate(-11,-12) scale(1.8)"/>
+                <animateMotion dur="9s" repeatCount="indefinite" rotate="auto" calcMode="linear">
+                    <mpath href="#heroRoute"/>
+                </animateMotion>
+                <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.07;0.9;1" dur="9s" repeatCount="indefinite"/>
+            </g>
+        </svg>
+        <div class="hero-content">
+            <h1>Travel <span class="accent">the world</span> with SkyConnect</h1>
+            <p>Book flights to hundreds of destinations worldwide at the best prices. Your journey begins with us.</p>
+            <div class="hero-buttons">
+                <a href="/flights" class="btn">Search Flights</a>
+                <a href="#" class="btn btn-outline">View Deals</a>
+            </div>
+        </div>
+    </div>
+    <div class="hero-image">
+        <img src="/assets/images/plane-wing.jpg" alt="Airplane wing view with clouds and sunset">
+    </div>
+</div>
+
+<div class="search-container">
+  <form action="/flights" method="get">
+    <div class="trip-type">
+      <label><input type="radio" name="trip_type" value="round" checked> Round Trip</label>
+      <label><input type="radio" name="trip_type" value="oneway"> One Way</label>
+      <label><input type="radio" name="trip_type" value="multi"> Multi-City</label>
+
+      <div class="trip-options">
+        <select name="class" class="form-control">
+          <option value="economy">Economy</option>
+          <option value="business">Business</option>
+          <option value="first">First</option>
+        </select>
+
+        <select name="passengers" class="form-control">
+          <option value="1">1 Passenger</option>
+          <option value="2">2 Passengers</option>
+          <option value="3">3 Passengers</option>
+          <option value="4">4 Passengers</option>
+          <option value="5">5 Passengers</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="search-fields">
+      <div class="form-group">
+        <label>From</label>
+        <input type="text" name="from" placeholder="City or Airport" class="form-control" list="city-list" autocomplete="off" required>
+      </div>
+      <div class="form-group">
+        <label>To</label>
+        <input type="text" name="to" placeholder="City or Airport" class="form-control" list="city-list" autocomplete="off" required>
+      </div>
+      <datalist id="city-list">
+        <% (typeof cities !== 'undefined' ? cities : []).forEach(function (c) { %><option value="<%= c %>"></option><% }) %>
+      </datalist>
+      <div class="form-group">
+        <label>Departure</label>
+        <input type="date" name="departure_date" class="form-control" required>
+      </div>
+      <div class="form-group return-date">
+        <label>Return</label>
+        <input type="date" name="return_date" class="form-control">
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-block">Search Flights</button>
+  </form>
+</div>
+
+<section class="features">
+    <div class="container">
+        <div class="feature-card">
+            <div class="feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"></path></svg>
+            </div>
+            <h3>Global Destinations</h3>
+            <p>Fly to over 500 destinations worldwide with our extensive network of airline partners.</p>
+        </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4 13.4 20.6a1.98 1.98 0 0 1-2.8 0L3 13V3h10l7.6 7.6a1.98 1.98 0 0 1 0 2.8Z"></path><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor"></circle></svg>
+            </div>
+            <h3>Best Price Guarantee</h3>
+            <p>Find a lower price elsewhere? We'll match it and give you extra discount.</p>
+        </div>
+
+        <div class="feature-card">
+            <div class="feature-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 5 3.4 7.7 8 9 4.6-1.3 8-4 8-9V6l-8-3Z"></path><path d="m9 12 2 2 4-4"></path></svg>
+            </div>
+            <h3>Secure Booking</h3>
+            <p>Book with confidence knowing your personal and payment information is secure.</p>
+        </div>
+    </div>
+</section>
+
+<%- include('partials/footer') %>

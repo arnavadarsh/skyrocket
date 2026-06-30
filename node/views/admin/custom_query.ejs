@@ -1,0 +1,109 @@
+<%- include('../partials/admin_header') %>
+<div class="admin-container">
+    <h1>Custom SQL Query</h1>
+    <p>Read-only SQL console: SELECT, EXPLAIN, SHOW and DESCRIBE queries only.</p>
+
+    <% if (error) { %><div class="alert alert-error"><%= error %></div><% } %>
+    <% if (success) { %><div class="alert alert-success"><%= success %></div><% } %>
+
+    <div class="admin-card">
+        <form action="/admin/custom_query" method="post">
+            <%- csrf_field() %>
+            <div class="form-group">
+                <label for="sql_query">SQL Query:</label>
+                <textarea id="sql_query" name="sql_query" class="query-editor"><%= query %></textarea>
+            </div>
+            <div class="query-actions">
+                <button type="submit" name="execute_query" value="1" class="btn btn-primary">Execute Query</button>
+                <button type="button" id="clear-query" class="btn btn-secondary">Clear</button>
+            </div>
+        </form>
+
+        <div class="query-examples">
+            <h3>Example Queries:</h3>
+            <div class="query-example" data-query="SELECT * FROM users">SELECT * FROM users</div>
+            <div class="query-example" data-query="SELECT * FROM flights WHERE departure_city = 'New York'">SELECT * FROM flights WHERE departure_city = 'New York'</div>
+            <div class="query-example" data-query="SELECT b.booking_id, u.username, f.flight_number FROM bookings b JOIN users u ON b.user_id = u.user_id JOIN flights f ON b.flight_id = f.flight_id">SELECT bookings with user and flight info</div>
+            <div class="query-example" data-query="SELECT departure_city, arrival_city, COUNT(*) as flight_count FROM flights GROUP BY departure_city, arrival_city">Count flights by route</div>
+        </div>
+    </div>
+
+    <% if (result !== null) { %>
+        <div class="result-container">
+            <div class="result-header">
+                <h2>Query Results</h2>
+                <% if (result.length > 0) { %>
+                    <button type="button" id="download-csv" class="btn btn-sm">
+                        &#8681; Download CSV (<%= result.length %> row<%= result.length === 1 ? '' : 's' %>)
+                    </button>
+                <% } %>
+            </div>
+            <% if (result.length === 0) { %>
+                <p>No results returned.</p>
+            <% } else { %>
+                <table class="result-table" id="result-table">
+                    <thead>
+                        <tr><% Object.keys(result[0]).forEach(function(col) { %><th><%= col %></th><% }) %></tr>
+                    </thead>
+                    <tbody>
+                        <% result.forEach(function(row) { %>
+                            <tr><% Object.keys(result[0]).forEach(function(col) { %><td><%= row[col] !== null && row[col] !== undefined ? row[col] : 'NULL' %></td><% }) %></tr>
+                        <% }) %>
+                    </tbody>
+                </table>
+            <% } %>
+        </div>
+    <% } %>
+</div>
+
+<script>
+    document.getElementById('clear-query').addEventListener('click', function () {
+        document.getElementById('sql_query').value = '';
+    });
+    document.querySelectorAll('.query-example').forEach(function (ex) {
+        ex.addEventListener('click', function () {
+            document.getElementById('sql_query').value = this.getAttribute('data-query');
+        });
+    });
+
+    var downloadBtn = document.getElementById('download-csv');
+    if (downloadBtn) {
+        downloadBtn.addEventListener('click', function () {
+            var table = document.getElementById('result-table');
+            if (!table) return;
+
+            // RFC-4180 quoting: wrap in quotes when the value has a comma,
+            // quote, or newline, and double any embedded quotes.
+            function csvCell(text) {
+                var v = (text == null ? '' : String(text));
+                if (/[",\r\n]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
+                return v;
+            }
+
+            var lines = [];
+            table.querySelectorAll('tr').forEach(function (tr) {
+                var cells = tr.querySelectorAll('th, td');
+                var row = [];
+                cells.forEach(function (c) { row.push(csvCell(c.textContent.trim())); });
+                lines.push(row.join(','));
+            });
+
+            // Prepend a BOM so Excel reads UTF-8 correctly.
+            var csv = '﻿' + lines.join('\r\n');
+            var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            var url = URL.createObjectURL(blob);
+            var pad = function (n) { return String(n).padStart(2, '0'); };
+            var d = new Date();
+            var stamp = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) +
+                '_' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'query_results_' + stamp + '.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    }
+</script>
+<%- include('../partials/console_footer') %>

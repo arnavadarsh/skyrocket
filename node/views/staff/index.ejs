@@ -1,0 +1,53 @@
+<%- include('../partials/staff_header') %>
+<div class="admin-container">
+    <h1>Staff Dashboard &mdash; Departures (next 48h)</h1>
+    <%- include('../partials/messages') %>
+
+    <div class="table-responsive">
+        <table class="admin-table">
+            <thead>
+                <tr><th>Flight</th><th>Route</th><th>Departure</th><th>Status</th><th>Gate</th><th>Aircraft</th><th>Tickets</th><th></th></tr>
+            </thead>
+            <tbody>
+                <% if (flights.length > 0) { %>
+                    <% flights.forEach(function(f) { %>
+                        <tr>
+                            <td><strong><%= f.flight_number %></strong><br><small><%= f.airline %></small></td>
+                            <td><%= f.departure_city %> &rarr; <%= f.arrival_city %></td>
+                            <td><%= h.phpDate('D, M d H:i', f.departure_time) %></td>
+                            <td>
+                                <form action="/staff" method="post" class="status-form">
+                                    <%- csrf_field() %>
+                                    <input type="hidden" name="flight_id" value="<%= f.flight_id %>">
+                                    <select name="status" class="form-control status-select">
+                                        <% flight_statuses.forEach(function(st) { %><option value="<%= st %>" <%= f.status === st ? 'selected' : '' %>><%= h.ucfirst(st) %></option><% }) %>
+                                    </select>
+                                    <button type="submit" name="update_status" value="1" class="btn btn-sm">Update</button>
+                                </form>
+                            </td>
+                            <td>
+                                <form action="/staff" method="post" class="status-form">
+                                    <%- csrf_field() %>
+                                    <input type="hidden" name="flight_id" value="<%= f.flight_id %>">
+                                    <select name="gate_id" class="form-control status-select">
+                                        <option value="">&mdash; none &mdash;</option>
+                                        <% open_gates.forEach(function(g) { %>
+                                            <option value="<%= g.gate_id %>" <%= f.gate_id == g.gate_id ? 'selected' : '' %>><%= g.terminal %>-<%= g.gate_number %></option>
+                                        <% }) %>
+                                    </select>
+                                    <button type="submit" name="assign_gate" value="1" class="btn btn-sm">Assign</button>
+                                </form>
+                            </td>
+                            <td><%= f.aircraft_model ? f.aircraft_model : '—' %></td>
+                            <td><%= f.ticket_count %></td>
+                            <td><a href="/staff/flight_detail?flight_id=<%= f.flight_id %>" class="btn btn-sm">Detail</a></td>
+                        </tr>
+                    <% }) %>
+                <% } else { %>
+                    <tr><td colspan="8" class="text-center">No departures in the next 48 hours.</td></tr>
+                <% } %>
+            </tbody>
+        </table>
+    </div>
+</div>
+<%- include('../partials/console_footer') %>

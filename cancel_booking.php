@@ -52,26 +52,12 @@ try {
         cancel_fail("This booking can no longer be cancelled: the outbound flight has already departed.");
     }
 
-    // Mark cancelled and restore seats on outbound (+ return if present)
-    $stmt = $db->prepare("UPDATE bookings SET status = 'cancelled' WHERE booking_id = ?");
+    // The whole cancel cascade lives in the stored procedure:
+    // tickets cancelled + seats freed (via trigger, once per ticket),
+    // completed payment refunded, booking marked cancelled
+    $stmt = $db->prepare("CALL sp_cancel_booking(?)");
     $stmt->execute([$booking_id]);
-
-    // Cancel the tickets; NULLing seat_number frees each seat for new
-    // bookings (UNIQUE(flight_id, seat_number) allows multiple NULLs)
-    // while the ticket rows stay for history
-    $stmt = $db->prepare("UPDATE tickets SET status = 'cancelled', seat_number = NULL WHERE booking_id = ?");
-    $stmt->execute([$booking_id]);
-
-    // Refund the payment if this booking was paid; a pending (unpaid)
-    // booking has no completed payment, so this writes nothing
-    $stmt = $db->prepare("UPDATE payments SET status = 'refunded' WHERE booking_id = ? AND status = 'completed'");
-    $stmt->execute([$booking_id]);
-
-    $stmt = $db->prepare("UPDATE flights SET available_seats = available_seats + ? WHERE flight_id = ?");
-    $stmt->execute([$booking['passenger_count'], $booking['flight_id']]);
-    if ($booking['return_flight_id']) {
-        $stmt->execute([$booking['passenger_count'], $booking['return_flight_id']]);
-    }
+    $stmt->closeCursor();
 
     $db->commit();
     header("Location: booking_history.php?cancelled=1");

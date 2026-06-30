@@ -1,0 +1,49 @@
+<%- include('../partials/admin_header') %>
+<div class="admin-container">
+    <h1>Manage Bookings</h1>
+    <%- include('../partials/messages') %>
+
+    <div class="table-responsive">
+        <table class="admin-table">
+            <thead>
+                <tr><th>ID</th><th>User</th><th>Flight Details</th><th>Booking Date</th><th>Passengers</th><th>Status</th><th>Payment</th><th>Total Price</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+                <% if (bookings.length > 0) { %>
+                    <% bookings.forEach(function(b) { %>
+                        <tr>
+                            <td>#<%= b.booking_id %></td>
+                            <td><strong><%= b.username %></strong><br><%= b.email %><br><%= b.user_first_name %> <%= b.user_last_name %></td>
+                            <td>
+                                <strong>From:</strong> <%= b.from_city %><br>
+                                <strong>To:</strong> <%= b.to_city %><br>
+                                <strong>Flight:</strong> <%= b.outbound_flight %> (<%= b.outbound_airline %>)<br>
+                                <strong>Departure:</strong> <%= h.phpDate('M d, Y H:i', b.departure_time) %><br>
+                                <% if (b.return_flight) { %>
+                                    <strong>Return:</strong> <%= b.return_flight %> (<%= b.return_airline %>)<br>
+                                    <strong>Return Date:</strong> <%= h.phpDate('M d, Y H:i', b.return_departure) %>
+                                <% } %>
+                            </td>
+                            <td><%= h.phpDate('M d, Y H:i', b.booking_date) %></td>
+                            <td><%= b.passenger_count %><% if (b.passenger_names) { %><br><small><%= b.passenger_names %></small><% } %></td>
+                            <td><% if (b.status === 'cancelled') { %><span class="status-badge status-cancelled">Cancelled</span><% } else if (b.status === 'pending') { %><span class="status-badge status-delayed">Pending</span><% } else { %><span class="status-badge status-scheduled">Confirmed</span><% } %></td>
+                            <td><% if (b.payment_status === 'completed') { %><span class="status-badge status-scheduled">Paid</span><% } else if (b.payment_status === 'refunded') { %><span class="status-badge status-departed">Refunded</span><% } else { %><span class="status-badge status-delayed">Unpaid</span><% } %></td>
+                            <td>&#8377;<%= h.nf2(b.total_price) %></td>
+                            <td>
+                                <% if (b.status !== 'cancelled') { %>
+                                    <form action="/admin/bookings" method="post" onsubmit="return confirm('Cancel this booking? Tickets are released and any payment is refunded.')" style="display:inline">
+                                        <%- csrf_field() %>
+                                        <button type="submit" name="cancel_booking" value="<%= b.booking_id %>" class="btn btn-danger btn-sm">Cancel</button>
+                                    </form>
+                                <% } else { %>&mdash;<% } %>
+                            </td>
+                        </tr>
+                    <% }) %>
+                <% } else { %>
+                    <tr><td colspan="9" class="text-center">No bookings found</td></tr>
+                <% } %>
+            </tbody>
+        </table>
+    </div>
+</div>
+<%- include('../partials/console_footer') %>

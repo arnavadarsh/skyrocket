@@ -1,0 +1,76 @@
+<%- include('../partials/admin_header') %>
+<div class="admin-container">
+    <h1>Manage Employees</h1>
+    <%- include('../partials/messages') %>
+
+    <div class="admin-card">
+        <h2>Add New Employee</h2>
+        <form action="/admin/employees" method="post">
+            <%- csrf_field() %>
+            <div class="form-row">
+                <div class="form-group"><label for="full_name">Full Name</label><input type="text" id="full_name" name="full_name" class="form-control" maxlength="100" required></div>
+                <div class="form-group">
+                    <label for="role">Role</label>
+                    <select id="role" name="role" class="form-control">
+                        <% employee_roles.forEach(function(r) { %><option value="<%= r %>"><%= roleLabel(r) %></option><% }) %>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label for="contact_info">Contact Info (optional)</label><input type="text" id="contact_info" name="contact_info" class="form-control" maxlength="100"></div>
+                <div class="form-group">
+                    <label for="shift">Shift</label>
+                    <select id="shift" name="shift" class="form-control">
+                        <% shifts.forEach(function(sh) { %><option value="<%= sh %>"><%= h.ucfirst(sh) %></option><% }) %>
+                    </select>
+                </div>
+            </div>
+            <button type="submit" name="add_employee" value="1" class="btn btn-primary">Add Employee</button>
+        </form>
+    </div>
+
+    <h2>Roster</h2>
+    <div class="table-responsive">
+        <table class="admin-table">
+            <thead>
+                <tr><th>ID</th><th>Name</th><th>Role</th><th>Contact</th><th>Shift</th><th>Assigned Flights</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+                <% if (employee_list.length > 0) { %>
+                    <% employee_list.forEach(function(em) { %>
+                        <tr>
+                            <td>#<%= em.employee_id %></td>
+                            <form action="/admin/employees" method="post" id="edit-employee-<%= em.employee_id %>">
+                                <%- csrf_field() %>
+                                <input type="hidden" name="employee_id" value="<%= em.employee_id %>">
+                            </form>
+                            <td><input type="text" name="full_name" maxlength="100" required class="form-control" value="<%= em.full_name %>" form="edit-employee-<%= em.employee_id %>"></td>
+                            <td>
+                                <select name="role" class="form-control status-select" form="edit-employee-<%= em.employee_id %>">
+                                    <% employee_roles.forEach(function(r) { %><option value="<%= r %>" <%= em.role === r ? 'selected' : '' %>><%= roleLabel(r) %></option><% }) %>
+                                </select>
+                            </td>
+                            <td><input type="text" name="contact_info" maxlength="100" class="form-control" value="<%= em.contact_info || '' %>" form="edit-employee-<%= em.employee_id %>"></td>
+                            <td>
+                                <select name="shift" class="form-control status-select" form="edit-employee-<%= em.employee_id %>">
+                                    <% shifts.forEach(function(sh) { %><option value="<%= sh %>" <%= em.shift === sh ? 'selected' : '' %>><%= h.ucfirst(sh) %></option><% }) %>
+                                </select>
+                            </td>
+                            <td><%= em.assignment_count %></td>
+                            <td>
+                                <button type="submit" name="update_employee" value="1" class="btn btn-sm" form="edit-employee-<%= em.employee_id %>">Update</button>
+                                <form action="/admin/employees" method="post" onsubmit="return confirm('Delete this employee? Their flight assignments will be removed.')" style="display:inline">
+                                    <%- csrf_field() %>
+                                    <button type="submit" name="delete_employee" value="<%= em.employee_id %>" class="btn btn-danger btn-sm">Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                    <% }) %>
+                <% } else { %>
+                    <tr><td colspan="7" class="text-center">No employees yet — add one above.</td></tr>
+                <% } %>
+            </tbody>
+        </table>
+    </div>
+</div>
+<%- include('../partials/console_footer') %>

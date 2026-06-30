@@ -1,0 +1,29 @@
+<%- include('partials/header') %>
+<main>
+    <div class="container">
+        <div class="profile-card">
+            <div class="profile-banner">
+                <div class="profile-avatar"><%= (user.first_name || '?').charAt(0).toUpperCase() %><%= (user.last_name || '').charAt(0).toUpperCase() %></div>
+                <div class="profile-heading">
+                    <h1><%= user.first_name %> <%= user.last_name %></h1>
+                    <span class="profile-role badge-role-<%= user.role %>"><%= h.ucfirst(user.role) %></span>
+                </div>
+            </div>
+
+            <div class="profile-grid">
+                <div class="profile-field"><span>Username</span><strong>@<%= user.username %></strong></div>
+                <div class="profile-field"><span>Email</span><strong><%= user.email %></strong></div>
+                <div class="profile-field"><span>First Name</span><strong><%= user.first_name %></strong></div>
+                <div class="profile-field"><span>Last Name</span><strong><%= user.last_name %></strong></div>
+                <div class="profile-field"><span>Account Type</span><strong><%= h.ucfirst(user.role) %></strong></div>
+                <div class="profile-field"><span>Member Since</span><strong><%= h.phpDate('M d, Y', user.created_at) %></strong></div>
+            </div>
+
+            <div class="profile-actions">
+                <a href="/booking_history" class="btn">My Bookings</a>
+                <a href="/logout" class="btn btn-secondary">Logout</a>
+            </div>
+        </div>
+    </div>
+</main>
+<%- include('partials/footer') %>

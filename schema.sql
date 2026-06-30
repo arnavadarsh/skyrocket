@@ -117,6 +117,8 @@ CREATE TABLE flights (
   UNIQUE KEY uq_flights_number_departure (flight_number, departure_time),
   KEY idx_flights_aircraft (aircraft_id),
   KEY idx_flights_gate (gate_id),
+  -- Speeds route+date searches: equality columns first, range column last
+  KEY idx_flights_route_time (departure_city, arrival_city, departure_time),
   CONSTRAINT fk_flights_aircraft FOREIGN KEY (aircraft_id) REFERENCES aircraft (aircraft_id) ON DELETE RESTRICT,
   CONSTRAINT fk_flights_gate     FOREIGN KEY (gate_id)     REFERENCES gates (gate_id)        ON DELETE SET NULL,
   CONSTRAINT chk_flights_times  CHECK (arrival_time > departure_time),
@@ -427,3 +429,128 @@ CREATE TABLE luggage (
   CONSTRAINT fk_luggage_ticket FOREIGN KEY (ticket_id) REFERENCES tickets (ticket_id) ON DELETE CASCADE,
   CONSTRAINT chk_luggage_weight CHECK (weight > 0 AND weight <= 32)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- ------------------------------------------------------------
+-- Triggers: the database owns the seat accounting.
+-- Every ticket INSERT takes one seat (guarded — overselling raises
+-- SQLSTATE 45000 and aborts the transaction); cancelling or deleting
+-- a live ticket gives its seat back. Any client (the PHP app, the
+-- SQL console, a future API) gets the same guarantee.
+-- ------------------------------------------------------------
+DELIMITER $$
+
+CREATE TRIGGER trg_tickets_seat_decrement
+BEFORE INSERT ON tickets
+FOR EACH ROW
+BEGIN
+  UPDATE flights
+     SET available_seats = available_seats - 1
+   WHERE flight_id = NEW.flight_id
+     AND available_seats >= 1;
+  IF ROW_COUNT() = 0 THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Not enough seats available on this flight';
+  END IF;
+END$$
+
+CREATE TRIGGER trg_tickets_seat_restore
+AFTER UPDATE ON tickets
+FOR EACH ROW
+BEGIN
+  IF OLD.status <> 'cancelled' AND NEW.status = 'cancelled' THEN
+    UPDATE flights
+       SET available_seats = available_seats + 1
+     WHERE flight_id = NEW.flight_id;
+  END IF;
+END$$
+
+-- Covers CASCADE deletes (e.g. a booking hard-deleted in the console)
+-- so seats can never leak; the app itself never hard-deletes tickets.
+CREATE TRIGGER trg_tickets_seat_restore_del
+AFTER DELETE ON tickets
+FOR EACH ROW
+BEGIN
+  IF OLD.status <> 'cancelled' THEN
+    UPDATE flights
+       SET available_seats = available_seats + 1
+     WHERE flight_id = OLD.flight_id;
+  END IF;
+END$$
+
+DELIMITER ;
+
+-- ------------------------------------------------------------
+-- sp_cancel_booking: the single cancel cascade, shared by the
+-- user-facing and admin cancel paths (callers keep their own
+-- authorization, departure checks and row locks, then CALL this
+-- inside their transaction).
+-- Cancelling tickets fires trg_tickets_seat_restore exactly once
+-- per live ticket, so seats come back once per ticket per leg —
+-- a double restore is impossible by construction.
+-- ------------------------------------------------------------
+DELIMITER $$
+
+CREATE PROCEDURE sp_cancel_booking(IN p_booking_id INT)
+BEGIN
+  DECLARE v_status VARCHAR(10);
+
+  SELECT status INTO v_status FROM bookings WHERE booking_id = p_booking_id;
+
+  IF v_status IS NULL THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Booking not found';
+  END IF;
+  IF v_status = 'cancelled' THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Booking already cancelled';
+  END IF;
+
+  -- Cancel live tickets and free their seats (NULL keeps the
+  -- UNIQUE(flight_id, seat_number) key happy for re-sale)
+  UPDATE tickets
+     SET status = 'cancelled', seat_number = NULL
+   WHERE booking_id = p_booking_id AND status <> 'cancelled';
+
+  -- Refund a completed payment; writes nothing for unpaid bookings
+  UPDATE payments
+     SET status = 'refunded'
+   WHERE booking_id = p_booking_id AND status = 'completed';
+
+  UPDATE bookings
+     SET status = 'cancelled'
+   WHERE booking_id = p_booking_id;
+END$$
+
+DELIMITER ;
+
+-- ------------------------------------------------------------
+-- Views for the admin reports page
+-- ------------------------------------------------------------
+
+-- Per-flight occupancy. seats_sold counts non-cancelled tickets;
+-- occupancy is sold / (sold + still available) — i.e. how full the
+-- sellable inventory is — with NULLIF guarding the divide-by-zero.
+CREATE VIEW vw_flight_occupancy AS
+SELECT f.flight_id,
+       f.flight_number,
+       CONCAT(f.departure_city, ' → ', f.arrival_city) AS route,
+       f.departure_time,
+       f.status,
+       a.model AS aircraft_model,
+       a.capacity,
+       COUNT(t.ticket_id) AS seats_sold,
+       f.available_seats,
+       ROUND(100 * COUNT(t.ticket_id) / NULLIF(COUNT(t.ticket_id) + f.available_seats, 0), 1) AS occupancy_pct
+FROM flights f
+LEFT JOIN aircraft a ON f.aircraft_id = a.aircraft_id
+LEFT JOIN tickets t ON t.flight_id = f.flight_id AND t.status <> 'cancelled'
+GROUP BY f.flight_id, f.flight_number, f.departure_city, f.arrival_city,
+         f.departure_time, f.status, a.model, a.capacity, f.available_seats;
+
+-- Revenue per airline from fare snapshots: exact even after later
+-- price edits, counting only live tickets of live bookings.
+CREATE VIEW vw_revenue_by_airline AS
+SELECT f.airline,
+       COUNT(t.ticket_id) AS tickets_sold,
+       COALESCE(SUM(t.fare), 0) AS revenue
+FROM flights f
+JOIN tickets t ON t.flight_id = f.flight_id AND t.status <> 'cancelled'
+JOIN bookings b ON t.booking_id = b.booking_id AND b.status <> 'cancelled'
+GROUP BY f.airline;

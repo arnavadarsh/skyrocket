@@ -1,0 +1,44 @@
+<%- include('../partials/admin_header') %>
+<div class="admin-container">
+    <h1>Reports</h1>
+    <p>Live operational and revenue reports. Each section shows the exact SQL it runs.</p>
+
+    <%
+    function reportCell(column, value, money, percent) {
+        if (value === null || value === undefined) return '—';
+        if (money.includes(column)) return '₹' + h.nf2(value);
+        if (percent.includes(column)) return Number(value).toFixed(1) + '%';
+        return value;
+    }
+    function ucwords(s) { return String(s).replace(/_/g, ' ').replace(/\b\w/g, function(c){ return c.toUpperCase(); }); }
+    %>
+
+    <% reports.forEach(function(report) { %>
+        <div class="admin-card report-section">
+            <h2><%= report.title %></h2>
+            <% if (report.note) { %><p class="report-note"><%= report.note %></p><% } %>
+            <details>
+                <summary>Show SQL</summary>
+                <pre><%= report.sql %></pre>
+            </details>
+
+            <% if (report.rows.length > 0) { %>
+                <div class="table-responsive">
+                    <table class="admin-table">
+                        <thead>
+                            <tr><% Object.keys(report.rows[0]).forEach(function(col) { %><th><%= ucwords(col) %></th><% }) %></tr>
+                        </thead>
+                        <tbody>
+                            <% report.rows.forEach(function(row) { %>
+                                <tr><% Object.keys(report.rows[0]).forEach(function(col) { %><td><%= reportCell(col, row[col], report.money || [], report.percent || []) %></td><% }) %></tr>
+                            <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            <% } else { %>
+                <p>No data yet.</p>
+            <% } %>
+        </div>
+    <% }) %>
+</div>
+<%- include('../partials/console_footer') %>

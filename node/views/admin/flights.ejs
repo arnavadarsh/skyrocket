@@ -1,0 +1,110 @@
+<%- include('../partials/admin_header') %>
+<div class="admin-container">
+    <h1>Manage Flights</h1>
+    <%- include('../partials/messages') %>
+
+    <div class="admin-card">
+        <h2>Add New Flight</h2>
+        <form action="/admin/flights" method="post">
+            <%- csrf_field() %>
+            <div class="form-row">
+                <div class="form-group"><label for="flight_number">Flight Number</label><input type="text" id="flight_number" name="flight_number" class="form-control" required></div>
+                <div class="form-group"><label for="airline">Airline</label><input type="text" id="airline" name="airline" class="form-control" required></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label for="departure_city">Departure City</label><input type="text" id="departure_city" name="departure_city" class="form-control" required></div>
+                <div class="form-group"><label for="arrival_city">Arrival City</label><input type="text" id="arrival_city" name="arrival_city" class="form-control" required></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label for="departure_time">Departure Time</label><input type="datetime-local" id="departure_time" name="departure_time" class="form-control" required></div>
+                <div class="form-group"><label for="arrival_time">Arrival Time</label><input type="datetime-local" id="arrival_time" name="arrival_time" class="form-control" required></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group"><label for="economy_price">Economy Price (&#8377;)</label><input type="number" id="economy_price" name="economy_price" step="0.01" min="0" class="form-control" required></div>
+                <div class="form-group"><label for="business_price">Business Price (&#8377;)</label><input type="number" id="business_price" name="business_price" step="0.01" min="0" class="form-control" required></div>
+                <div class="form-group"><label for="first_price">First Class Price (&#8377;)</label><input type="number" id="first_price" name="first_price" step="0.01" min="0" class="form-control" required></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="aircraft_id">Aircraft</label>
+                    <select id="aircraft_id" name="aircraft_id" class="form-control">
+                        <option value="">&mdash; none &mdash;</option>
+                        <% active_aircraft.forEach(function(a) { %>
+                            <option value="<%= a.aircraft_id %>">#<%= a.aircraft_id %> <%= a.model %> (<%= a.capacity %> seats)</option>
+                        <% }) %>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="gate_id">Gate</label>
+                    <select id="gate_id" name="gate_id" class="form-control">
+                        <option value="">&mdash; none &mdash;</option>
+                        <% open_gates.forEach(function(g) { %>
+                            <option value="<%= g.gate_id %>"><%= g.terminal %>-<%= g.gate_number %></option>
+                        <% }) %>
+                    </select>
+                </div>
+                <div class="form-group"><label for="available_seats">Available Seats</label><input type="number" id="available_seats" name="available_seats" min="1" class="form-control" placeholder="blank = aircraft capacity"></div>
+            </div>
+            <button type="submit" name="add_flight" value="1" class="btn btn-primary">Add Flight</button>
+        </form>
+    </div>
+
+    <h2>All Flights</h2>
+    <div class="table-responsive">
+        <table class="admin-table">
+            <thead>
+                <tr><th>ID</th><th>Flight #</th><th>Airline</th><th>Route</th><th>Departure</th><th>Arrival</th><th>Economy</th><th>Business</th><th>First</th><th>Seats</th><th>Aircraft</th><th>Gate</th><th>Status</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+                <% if (flights.length > 0) { %>
+                    <% flights.forEach(function(f) { %>
+                        <tr>
+                            <td>#<%= f.flight_id %></td>
+                            <td><%= f.flight_number %></td>
+                            <td><%= f.airline %></td>
+                            <td><%= f.departure_city %> &rarr; <%= f.arrival_city %></td>
+                            <td><%= h.phpDate('M d, Y H:i', f.departure_time) %></td>
+                            <td><%= h.phpDate('M d, Y H:i', f.arrival_time) %></td>
+                            <td>&#8377;<%= h.nf2(f.economy_price) %></td>
+                            <td>&#8377;<%= h.nf2(f.business_price) %></td>
+                            <td>&#8377;<%= h.nf2(f.first_price) %></td>
+                            <td><%= f.available_seats %></td>
+                            <td><%= f.aircraft_model ? f.aircraft_model : '—' %></td>
+                            <td><%= f.gate_id ? (f.terminal + '-' + f.gate_number) : '—' %></td>
+                            <td>
+                                <form action="/admin/flights" method="post" class="status-form">
+                                    <%- csrf_field() %>
+                                    <input type="hidden" name="flight_id" value="<%= f.flight_id %>">
+                                    <select name="status" class="form-control status-select">
+                                        <% flight_statuses.forEach(function(st) { %>
+                                            <option value="<%= st %>" <%= f.status === st ? 'selected' : '' %>><%= h.ucfirst(st) %></option>
+                                        <% }) %>
+                                    </select>
+                                    <button type="submit" name="update_status" value="1" class="btn btn-sm">Update</button>
+                                </form>
+                            </td>
+                            <td>
+                                <form action="/admin/flights" method="post" onsubmit="return confirm('Are you sure you want to delete this flight?')" style="display:inline">
+                                    <%- csrf_field() %>
+                                    <button type="submit" name="delete_flight" value="<%= f.flight_id %>" class="btn btn-danger btn-sm">Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                    <% }) %>
+                <% } else { %>
+                    <tr><td colspan="14" class="text-center">No flights found</td></tr>
+                <% } %>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    var ep = document.getElementById('economy_price');
+    if (ep) ep.addEventListener('input', function () {
+        var v = parseFloat(this.value) || 0;
+        document.getElementById('business_price').value = (v * 1.8).toFixed(2);
+        document.getElementById('first_price').value = (v * 2.5).toFixed(2);
+    });
+</script>
+<%- include('../partials/console_footer') %>

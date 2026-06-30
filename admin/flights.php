@@ -148,6 +148,7 @@ $flights = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <li><a href="flights.php" class="active">Flights</a></li>
                 <li><a href="aircraft.php">Aircraft</a></li>
                 <li><a href="employees.php">Employees</a></li>
+                <li><a href="reports.php">Reports</a></li>
                 <li><a href="custom_query.php">Custom Query</a></li>
             </ul>
             <div class="auth-links">

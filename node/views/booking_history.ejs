@@ -1,0 +1,121 @@
+<%- include('partials/header') %>
+<main>
+    <div class="container">
+        <h1>My Bookings</h1>
+
+        <% if (flash.cancelled) { %>
+            <div class="alert alert-success js-toast">Your booking has been cancelled and the seats have been released.</div>
+        <% } %>
+        <% if (flash.cancel_error) { %>
+            <div class="alert alert-error js-toast"><%= flash.cancel_error %></div>
+        <% } %>
+
+        <% if (bookings.length > 0) { %>
+            <div class="booking-history">
+                <% bookings.forEach(function(booking) { %>
+                    <div class="booking-card">
+                        <div class="booking-header">
+                            <div class="booking-id">Booking #SKY<%= h.pad6(booking.booking_id) %></div>
+                            <div class="booking-date">Booked on <%= h.phpDate('M d, Y', booking.booking_date) %></div>
+                            <% if (booking.status === 'cancelled') { %>
+                                <span class="status-badge status-cancelled">Cancelled</span>
+                                <% if (booking.payment_status === 'refunded') { %>
+                                    <span class="status-badge status-departed">Refunded</span>
+                                <% } %>
+                            <% } else if (booking.status === 'pending') { %>
+                                <span class="status-badge status-delayed">Payment pending</span>
+                            <% } %>
+                            <% if (booking.status !== 'cancelled') { %>
+                                <span class="countdown" data-countdown="<%= h.phpDate('Y-m-d H:i', booking.departure_time) %>"></span>
+                            <% } %>
+                        </div>
+
+                        <div class="flight-details">
+                            <div class="flight-info-row">
+                                <div class="flight-label">Outbound Flight:</div>
+                                <div class="flight-value"><%= booking.outbound_flight %> (<%= booking.outbound_airline %>) <%- h.statusBadge(booking.outbound_status) %></div>
+                            </div>
+                            <div class="flight-route">
+                                <div class="route-from"><%= booking.from_city %></div>
+                                <div class="route-arrow">&rarr;</div>
+                                <div class="route-to"><%= booking.to_city %></div>
+                            </div>
+                            <div class="flight-time">
+                                <div class="time-label">Departure:</div>
+                                <div class="time-value"><%= h.phpDate('D, M d, Y H:i', booking.departure_time) %></div>
+                            </div>
+                            <div class="flight-time">
+                                <div class="time-label">Arrival:</div>
+                                <div class="time-value"><%= h.phpDate('D, M d, Y H:i', booking.arrival_time) %></div>
+                            </div>
+                            <% if (booking.outbound_gate) { %>
+                            <div class="flight-time">
+                                <div class="time-label">Gate:</div>
+                                <div class="time-value"><strong><%= booking.outbound_terminal %>-<%= booking.outbound_gate %></strong></div>
+                            </div>
+                            <% } %>
+
+                            <% if (booking.return_flight) { %>
+                                <div class="flight-info-row return">
+                                    <div class="flight-label">Return Flight:</div>
+                                    <div class="flight-value"><%= booking.return_flight %> (<%= booking.return_airline %>) <%- h.statusBadge(booking.return_status) %></div>
+                                </div>
+                                <div class="flight-route">
+                                    <div class="route-from"><%= booking.to_city %></div>
+                                    <div class="route-arrow">&rarr;</div>
+                                    <div class="route-to"><%= booking.from_city %></div>
+                                </div>
+                                <div class="flight-time">
+                                    <div class="time-label">Departure:</div>
+                                    <div class="time-value"><%= h.phpDate('D, M d, Y H:i', booking.return_departure) %></div>
+                                </div>
+                                <div class="flight-time">
+                                    <div class="time-label">Arrival:</div>
+                                    <div class="time-value"><%= h.phpDate('D, M d, Y H:i', booking.return_arrival) %></div>
+                                </div>
+                            <% } %>
+                        </div>
+
+                        <div class="booking-footer">
+                            <div class="booking-summary">
+                                <div class="summary-item">
+                                    <span class="summary-label">Class:</span>
+                                    <span class="summary-value"><%= h.ucfirst(booking.class || 'economy') %></span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-label">Passengers:</span>
+                                    <span class="summary-value"><%= booking.passenger_count %></span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-label">Total Price:</span>
+                                    <span class="summary-value">&#8377;<%= h.nf2(booking.total_price) %></span>
+                                </div>
+                            </div>
+                            <div class="booking-actions">
+                                <% if (booking.status === 'pending') { %>
+                                    <a href="/payment?booking_id=<%= booking.booking_id %>" class="btn btn-primary">Complete Payment</a>
+                                <% } else { %>
+                                    <a href="/booking_confirmation?booking_id=<%= booking.booking_id %>" class="btn">View Details</a>
+                                <% } %>
+                                <% if (booking.can_cancel) { %>
+                                    <form action="/cancel_booking" method="post" onsubmit="return confirm('Cancel this booking? The seats will be released.')" style="display:inline">
+                                        <%- csrf_field() %>
+                                        <input type="hidden" name="booking_id" value="<%= booking.booking_id %>">
+                                        <button type="submit" class="btn btn-danger">Cancel Booking</button>
+                                    </form>
+                                <% } %>
+                            </div>
+                        </div>
+                    </div>
+                <% }) %>
+            </div>
+        <% } else { %>
+            <div class="no-bookings">
+                <h2>You don't have any bookings yet.</h2>
+                <p>Search for flights and book your next trip!</p>
+                <a href="/" class="btn">Search Flights</a>
+            </div>
+        <% } %>
+    </div>
+</main>
+<%- include('partials/footer') %>

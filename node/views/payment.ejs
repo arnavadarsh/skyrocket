@@ -1,0 +1,83 @@
+<%- include('partials/header') %>
+<main>
+    <div class="container">
+        <div class="booking-container">
+            <h1>Complete Your Payment</h1>
+            <%- include('partials/stepper', { step: 3 }) %>
+
+            <% if (error_message) { %>
+                <div class="alert alert-error"><%= error_message %></div>
+            <% } %>
+
+            <div class="booking-summary">
+                <h2>Booking #SKY<%= h.pad6(booking.booking_id) %></h2>
+                <p>
+                    <strong><%= booking.from_city %> &rarr; <%= booking.to_city %></strong>
+                    (<%= booking.outbound_flight %>, departs <%= h.phpDate('D, M d, Y H:i', booking.departure_time) %>)
+                    <% if (booking.return_flight) { %>
+                        <br>Return: <strong><%= booking.return_flight %></strong>,
+                        departs <%= h.phpDate('D, M d, Y H:i', booking.return_departure) %>
+                    <% } %>
+                </p>
+
+                <h3>Tickets</h3>
+                <table class="data-table tickets-table">
+                    <thead>
+                        <tr>
+                            <th>Passenger</th><th>Flight</th><th>Leg</th><th>Seat</th><th>Class</th><th>Fare</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% tickets.forEach(function(t) { %>
+                            <tr>
+                                <td><%= t.full_name %></td>
+                                <td><%= t.flight_number %></td>
+                                <td><%= t.flight_id == booking.flight_id ? 'Outbound' : 'Return' %></td>
+                                <td><%= t.seat_number || '—' %></td>
+                                <td><%= h.ucfirst(t.class) %></td>
+                                <td>&#8377;<%= h.nf2(t.fare) %></td>
+                            </tr>
+                        <% }) %>
+                    </tbody>
+                </table>
+
+                <div class="booking-row total" style="margin-top: 15px;">
+                    <span><strong>Amount due:</strong></span>
+                    <span><strong>&#8377;<%= h.nf2(booking.total_price) %></strong></span>
+                </div>
+
+                <form action="/payment?booking_id=<%= booking.booking_id %>" method="post">
+                    <%- csrf_field() %>
+                    <h3>Payment Method</h3>
+                    <div class="payment-methods">
+                        <label class="payment-method" for="pm_card">
+                            <input type="radio" id="pm_card" name="method" value="card" checked>
+                            <span class="pm-icon">&#128179;</span>
+                            <span class="pm-label">Card</span>
+                            <span class="pm-sub">Visa, Mastercard, Rupay</span>
+                        </label>
+                        <label class="payment-method" for="pm_upi">
+                            <input type="radio" id="pm_upi" name="method" value="upi">
+                            <span class="pm-icon">&#128241;</span>
+                            <span class="pm-label">UPI</span>
+                            <span class="pm-sub">GPay, PhonePe, Paytm</span>
+                        </label>
+                        <label class="payment-method" for="pm_netbanking">
+                            <input type="radio" id="pm_netbanking" name="method" value="netbanking">
+                            <span class="pm-icon">&#127974;</span>
+                            <span class="pm-label">Netbanking</span>
+                            <span class="pm-sub">All major banks</span>
+                        </label>
+                    </div>
+                    <p class="payment-note">&#128274; This is a demo gateway — no real payment is processed.</p>
+
+                    <div class="form-actions">
+                        <a href="/booking_history" class="btn btn-secondary">Pay Later</a>
+                        <button type="submit" name="pay_now" value="1" class="btn btn-primary">Pay &#8377;<%= h.nf2(booking.total_price) %></button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</main>
+<%- include('partials/footer') %>

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= title %> - <%= SITE_NAME %></title>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link rel="stylesheet" href="/assets/css/admin.css">
+    <link rel="stylesheet" href="/assets/css/features.css">
+    <script>(function(){try{var t=localStorage.getItem('sky-theme')||(window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+</head>
+<body>
+<header>
+    <nav>
+        <div class="logo">
+            <a href="/">
+                <img src="/assets/images/logo.png" alt="SkyConnect Logo">
+                SkyConnect
+            </a>
+        </div>
+        <ul class="nav-links">
+            <li><a href="/">Home</a></li>
+            <li><a href="/staff" class="<%= active === 'staff' ? 'active' : '' %>">Staff Dashboard</a></li>
+            <% if (isAdmin) { %>
+            <li><a href="/admin">Admin</a></li>
+            <% } %>
+        </ul>
+        <div class="auth-links">
+            <button type="button" class="theme-toggle" aria-label="Toggle dark mode" title="Toggle theme">
+                <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"></path></svg>
+                <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+            </button>
+            <span>Welcome, <%= session.first_name %></span>
+            <a href="/logout">Logout</a>
+        </div>
+    </nav>
+</header>
+<main>

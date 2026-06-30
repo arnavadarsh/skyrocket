@@ -98,6 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['execute_query'])) {
                 <li><a href="flights.php">Flights</a></li>
                 <li><a href="aircraft.php">Aircraft</a></li>
                 <li><a href="employees.php">Employees</a></li>
+                <li><a href="reports.php">Reports</a></li>
                 <li><a href="custom_query.php" class="active">Custom Query</a></li>
             </ul>
             <div class="auth-links">

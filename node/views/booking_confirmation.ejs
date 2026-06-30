@@ -1,0 +1,209 @@
+<%- include('partials/header') %>
+<%
+  // A boarding-pass card. `leg` is a plain object with the fields it needs so
+  // the outbound and (optional) return legs share one block of markup.
+  function boardingPass(leg) {
+%>
+  <div class="boarding-pass <%= booking.status === 'cancelled' ? 'is-void' : '' %>">
+    <div class="bp-main">
+      <div class="bp-top">
+        <div class="bp-airline">
+          <span class="bp-airline-dot"><%= leg.airline.charAt(0) %></span>
+          <div>
+            <div class="bp-airline-name"><%= leg.airline %></div>
+            <div class="bp-flight-no"><%= leg.flight_number %></div>
+          </div>
+        </div>
+        <span class="bp-tag"><%= leg.label %></span>
+      </div>
+
+      <% if (booking.status !== 'cancelled') { %>
+      <div class="bp-countdown-row"><span class="countdown" data-countdown="<%= h.phpDate('Y-m-d H:i', leg.dep) %>"></span></div>
+      <% } %>
+
+      <div class="bp-route">
+        <div class="bp-point">
+          <div class="bp-code"><%= leg.from_city.slice(0,3).toUpperCase() %></div>
+          <div class="bp-city"><%= leg.from_city %></div>
+          <div class="bp-time"><%= h.phpDate('H:i', leg.dep) %></div>
+        </div>
+        <div class="bp-path">
+          <span class="bp-plane">&#9992;</span>
+          <div class="bp-duration"><%= h.durationHM(leg.dep, leg.arr) %></div>
+        </div>
+        <div class="bp-point bp-point-end">
+          <div class="bp-code"><%= leg.to_city.slice(0,3).toUpperCase() %></div>
+          <div class="bp-city"><%= leg.to_city %></div>
+          <div class="bp-time"><%= h.phpDate('H:i', leg.arr) %></div>
+        </div>
+      </div>
+
+      <div class="bp-meta">
+        <div class="bp-meta-item"><span>Passenger</span><strong><%= leg.passenger %></strong></div>
+        <div class="bp-meta-item"><span>Date</span><strong><%= h.phpDate('D, M d', leg.dep) %></strong></div>
+        <div class="bp-meta-item"><span>Class</span><strong><%= class_display %></strong></div>
+        <div class="bp-meta-item"><span>Seat</span><strong><%= leg.seat || 'TBA' %></strong></div>
+        <div class="bp-meta-item"><span>Gate</span><strong><%= leg.gate || 'TBA' %></strong></div>
+      </div>
+    </div>
+
+    <div class="bp-stub">
+      <div class="bp-qr"><%- h.qrSvg('SKY' + h.pad6(booking.booking_id) + leg.flight_number) %></div>
+      <div class="bp-ref">SKY<%= h.pad6(booking.booking_id) %></div>
+      <div class="bp-stub-note"><%= leg.label %></div>
+    </div>
+  </div>
+<% } %>
+
+<main>
+    <div class="container">
+        <div class="confirmation-container">
+            <% if (booking.status !== 'cancelled') { %><%- include('partials/stepper', { step: 4 }) %><% } %>
+            <% if (booking.status === 'cancelled') { %>
+            <div class="confirmation-header">
+                <div class="result-badge cancel">
+                    <svg class="rb-svg" viewBox="0 0 100 100" aria-hidden="true">
+                        <circle class="rb-ring" cx="50" cy="50" r="46"></circle>
+                        <path class="rb-mark" d="M35 35 L65 65"></path>
+                        <path class="rb-mark second" d="M65 35 L35 65"></path>
+                    </svg>
+                </div>
+                <h1>Booking Cancelled</h1>
+                <p>This booking has been cancelled. The details below are kept for your records.</p>
+            </div>
+            <% } else { %>
+            <div class="confirmation-header">
+                <div class="result-badge success">
+                    <svg class="rb-svg" viewBox="0 0 100 100" aria-hidden="true">
+                        <circle class="rb-ring" cx="50" cy="50" r="46"></circle>
+                        <path class="rb-mark" d="M30 51 L44 65 L72 35"></path>
+                    </svg>
+                </div>
+                <h1>Booking Confirmed!</h1>
+                <p>Your e-ticket is ready. Show the boarding pass below at the gate.</p>
+            </div>
+            <% } %>
+
+            <section class="eticket-section">
+                <% boardingPass({
+                    airline: booking.outbound_airline, flight_number: booking.outbound_flight,
+                    label: 'Outbound', from_city: booking.from_city, to_city: booking.to_city,
+                    dep: booking.departure_time, arr: booking.arrival_time,
+                    passenger: (tickets[0] && tickets[0].full_name) || (session.first_name + ' ' + session.last_name),
+                    seat: tickets[0] && tickets[0].seat_number,
+                    gate: booking.outbound_gate ? (booking.outbound_terminal + '-' + booking.outbound_gate) : null
+                }); %>
+
+                <% if (booking.return_flight) {
+                     const rt = tickets.find(t => t.flight_id != booking.flight_id); %>
+                  <% boardingPass({
+                        airline: booking.return_airline, flight_number: booking.return_flight,
+                        label: 'Return', from_city: booking.to_city, to_city: booking.from_city,
+                        dep: booking.return_departure, arr: booking.return_arrival,
+                        passenger: (rt && rt.full_name) || (session.first_name + ' ' + session.last_name),
+                        seat: rt && rt.seat_number,
+                        gate: booking.return_gate ? (booking.return_terminal + '-' + booking.return_gate) : null
+                  }); %>
+                <% } %>
+            </section>
+
+            <div class="booking-details">
+                <div class="booking-info">
+                    <h2>Booking Information</h2>
+                    <div class="info-group">
+                        <div class="info-row">
+                            <span>Booking Reference:</span>
+                            <strong>SKY<%= h.pad6(booking.booking_id) %></strong>
+                        </div>
+                        <div class="info-row">
+                            <span>Booking Date:</span>
+                            <span><%= h.phpDate('M d, Y H:i', booking.booking_date) %></span>
+                        </div>
+                        <div class="info-row">
+                            <span>Class:</span>
+                            <span><%= class_display %></span>
+                        </div>
+                        <div class="info-row">
+                            <span>Passenger(s):</span>
+                            <span><%= booking.passenger_count %></span>
+                        </div>
+                        <% if (payment) { %>
+                        <div class="info-row">
+                            <span>Payment Method:</span>
+                            <span><%= method_labels[payment.method] || payment.method %></span>
+                        </div>
+                        <div class="info-row">
+                            <span>Transaction Ref:</span>
+                            <span><%= payment.txn_ref %></span>
+                        </div>
+                        <div class="info-row">
+                            <span>Payment Status:</span>
+                            <span><% if (payment.status === 'refunded') { %><span class="status-badge status-cancelled">Refunded</span><% } else { %><span class="status-badge status-scheduled"><%= h.ucfirst(payment.status) %></span><% } %></span>
+                        </div>
+                        <% if (payment.paid_at) { %>
+                        <div class="info-row">
+                            <span>Paid At:</span>
+                            <span><%= h.phpDate('M d, Y H:i', payment.paid_at) %></span>
+                        </div>
+                        <% } %>
+                        <% } %>
+                        <div class="info-row total">
+                            <span>Total Price:</span>
+                            <span>&#8377;<%= h.nf2(booking.total_price) %></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tickets-section">
+                <h2>Tickets</h2>
+                <div class="table-responsive">
+                <table class="data-table tickets-table">
+                    <thead>
+                        <tr>
+                            <th>Passenger</th><th>Flight</th><th>Leg</th><th>Seat</th><th>Class</th><th>Fare</th><th>Status</th><th>Luggage</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% tickets.forEach(function(t) { %>
+                            <tr>
+                                <td><%= t.full_name %></td>
+                                <td><%= t.flight_number %></td>
+                                <td><%= t.flight_id == booking.flight_id ? 'Outbound' : 'Return' %></td>
+                                <td><%= t.seat_number || '—' %></td>
+                                <td><%= h.ucfirst(t.class) %></td>
+                                <td>&#8377;<%= h.nf2(t.fare) %></td>
+                                <td><% if (t.status === 'cancelled') { %><span class="status-badge status-cancelled">Cancelled</span><% } else { %><span class="status-badge status-scheduled"><%= h.ucfirst(t.status.replace('_',' ')) %></span><% } %></td>
+                                <td>
+                                    <% const bags = luggage_by_ticket[t.ticket_id]; %>
+                                    <% if (bags && bags.length) { %>
+                                        <% bags.forEach(function(bag) { %>
+                                            <div class="luggage-line">
+                                                <%= h.nf2(bag.weight).replace(/\.00$/, '.0') %> kg
+                                                <span class="status-badge <%= bag.status === 'lost' ? 'status-cancelled' : (bag.status === 'arrived' ? 'status-scheduled' : 'status-boarding') %>">
+                                                    <%= h.ucfirst(bag.status.replace('_',' ')) %>
+                                                </span>
+                                            </div>
+                                        <% }) %>
+                                    <% } else { %>
+                                        &mdash;
+                                    <% } %>
+                                </td>
+                            </tr>
+                        <% }) %>
+                    </tbody>
+                </table>
+                </div>
+            </div>
+
+            <div class="confirmation-actions">
+                <% if (booking.status !== 'cancelled') { %>
+                <button type="button" class="btn" data-print>&#128424; Print / Save E-Ticket</button>
+                <% } %>
+                <a href="/booking_history" class="btn btn-secondary">View All Bookings</a>
+                <a href="/" class="btn btn-secondary">Back to Home</a>
+            </div>
+        </div>
+    </div>
+</main>
+<%- include('partials/footer') %>

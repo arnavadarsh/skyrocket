@@ -1,0 +1,113 @@
+%% SkyConnect — Airport Management System ER diagram (11 tables)
+%% Matches schema.sql. Render at https://mermaid.live or any Mermaid viewer.
+erDiagram
+    users ||--o{ bookings : places
+    aircraft ||--o{ flights : "flown by"
+    gates ||--o{ flights : "assigned (SET NULL)"
+    flights ||--o{ bookings : "outbound"
+    flights ||--o{ bookings : "return"
+    bookings ||--o{ passengers : has
+    bookings ||--o{ tickets : contains
+    bookings ||--o{ payments : "paid by"
+    passengers ||--o{ tickets : "travels on"
+    flights ||--o{ tickets : "for"
+    tickets ||--o{ luggage : "carries"
+    employees ||--o{ employee_flight_assignment : "rostered"
+    flights ||--o{ employee_flight_assignment : "crewed by"
+
+    users {
+        int user_id PK
+        varchar username UK
+        varchar email UK
+        varchar password "bcrypt"
+        varchar first_name
+        varchar last_name
+        enum role "user|staff|admin"
+        timestamp created_at
+    }
+    aircraft {
+        int aircraft_id PK
+        varchar model
+        int capacity "CHECK > 0"
+        enum maintenance_status "active|maintenance|retired"
+    }
+    gates {
+        int gate_id PK
+        enum terminal "T1|T2|T3"
+        varchar gate_number
+        enum status "open|closed"
+    }
+    flights {
+        int flight_id PK
+        varchar flight_number
+        varchar airline
+        varchar departure_city
+        varchar arrival_city
+        datetime departure_time
+        datetime arrival_time
+        int available_seats "trigger-maintained"
+        decimal economy_price
+        decimal business_price
+        decimal first_price
+        enum status "scheduled..cancelled"
+        int aircraft_id FK
+        int gate_id FK
+    }
+    bookings {
+        int booking_id PK
+        int user_id FK
+        int flight_id FK
+        int return_flight_id FK "NULL = one-way"
+        timestamp booking_date
+        int passenger_count "CHECK 1..9"
+        decimal total_price
+        enum class "economy|business|first"
+        enum status "pending|confirmed|cancelled"
+    }
+    passengers {
+        int passenger_id PK
+        int booking_id FK
+        varchar full_name
+        date dob
+        enum gender "male|female|other"
+        varchar passport_no "nullable"
+    }
+    tickets {
+        int ticket_id PK
+        int booking_id FK
+        int passenger_id FK
+        int flight_id FK
+        varchar seat_number "UNIQUE per flight, NULL on cancel"
+        enum class
+        decimal fare "snapshot"
+        enum status "confirmed|checked_in|cancelled"
+    }
+    payments {
+        int payment_id PK
+        int booking_id FK
+        decimal amount
+        enum method "card|upi|netbanking"
+        enum status "pending|completed|refunded"
+        varchar txn_ref
+        datetime paid_at
+    }
+    employees {
+        int employee_id PK
+        varchar full_name
+        enum role "pilot|cabin_crew|ground|security"
+        varchar contact_info
+        enum shift "morning|evening|night"
+    }
+    employee_flight_assignment {
+        int assignment_id PK
+        int employee_id FK
+        int flight_id FK
+        timestamp assigned_at
+    }
+    luggage {
+        int luggage_id PK
+        int ticket_id FK
+        decimal weight "CHECK 0 < w <= 32"
+        enum status "checked_in|loaded|arrived|lost"
+        timestamp created_at
+    }

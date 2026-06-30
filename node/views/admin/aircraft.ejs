@@ -1,0 +1,63 @@
+<%- include('../partials/admin_header') %>
+<div class="admin-container">
+    <h1>Manage Aircraft</h1>
+    <%- include('../partials/messages') %>
+
+    <div class="admin-card">
+        <h2>Add New Aircraft</h2>
+        <form action="/admin/aircraft" method="post">
+            <%- csrf_field() %>
+            <div class="form-row">
+                <div class="form-group"><label for="model">Model</label><input type="text" id="model" name="model" class="form-control" maxlength="50" required></div>
+                <div class="form-group"><label for="capacity">Capacity</label><input type="number" id="capacity" name="capacity" min="1" class="form-control" required></div>
+                <div class="form-group">
+                    <label for="maintenance_status">Status</label>
+                    <select id="maintenance_status" name="maintenance_status" class="form-control">
+                        <% maintenance_statuses.forEach(function(st) { %><option value="<%= st %>"><%= h.ucfirst(st) %></option><% }) %>
+                    </select>
+                </div>
+            </div>
+            <button type="submit" name="add_aircraft" value="1" class="btn btn-primary">Add Aircraft</button>
+        </form>
+    </div>
+
+    <h2>Fleet</h2>
+    <div class="table-responsive">
+        <table class="admin-table">
+            <thead>
+                <tr><th>ID</th><th>Model</th><th>Capacity</th><th>Status</th><th>Flights</th><th>Actions</th></tr>
+            </thead>
+            <tbody>
+                <% if (aircraft_list.length > 0) { %>
+                    <% aircraft_list.forEach(function(a) { %>
+                        <tr>
+                            <td>#<%= a.aircraft_id %></td>
+                            <form action="/admin/aircraft" method="post" id="edit-aircraft-<%= a.aircraft_id %>">
+                                <%- csrf_field() %>
+                                <input type="hidden" name="aircraft_id" value="<%= a.aircraft_id %>">
+                            </form>
+                            <td><input type="text" name="model" maxlength="50" required class="form-control" value="<%= a.model %>" form="edit-aircraft-<%= a.aircraft_id %>"></td>
+                            <td><input type="number" name="capacity" min="1" required class="form-control" style="width:90px" value="<%= a.capacity %>" form="edit-aircraft-<%= a.aircraft_id %>"></td>
+                            <td>
+                                <select name="maintenance_status" class="form-control status-select" form="edit-aircraft-<%= a.aircraft_id %>">
+                                    <% maintenance_statuses.forEach(function(st) { %><option value="<%= st %>" <%= a.maintenance_status === st ? 'selected' : '' %>><%= h.ucfirst(st) %></option><% }) %>
+                                </select>
+                            </td>
+                            <td><%= a.flight_count %></td>
+                            <td>
+                                <button type="submit" name="update_aircraft" value="1" class="btn btn-sm" form="edit-aircraft-<%= a.aircraft_id %>">Update</button>
+                                <form action="/admin/aircraft" method="post" onsubmit="return confirm('Delete this aircraft?')" style="display:inline">
+                                    <%- csrf_field() %>
+                                    <button type="submit" name="delete_aircraft" value="<%= a.aircraft_id %>" class="btn btn-danger btn-sm">Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                    <% }) %>
+                <% } else { %>
+                    <tr><td colspan="6" class="text-center">No aircraft in the fleet yet — add one above.</td></tr>
+                <% } %>
+            </tbody>
+        </table>
+    </div>
+</div>
+<%- include('../partials/console_footer') %>

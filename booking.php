@@ -139,63 +139,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_booking']) &&
 
             $booking_id = $db->lastInsertId();
 
-            // Atomically decrement seats; the available_seats >= ? guard
-            // prevents overbooking when two requests race for the last seats
-            $stmt = $db->prepare("UPDATE flights SET available_seats = available_seats - ? WHERE flight_id = ? AND available_seats >= ?");
-            $stmt->execute([$passengers, $flight_id, $passengers]);
-            if ($stmt->rowCount() !== 1) {
-                $db->rollBack();
-                $error_message = "Not enough seats available on the outbound flight.";
-            } else {
-                $ok = true;
-                if ($return_flight) {
-                    $stmt->execute([$passengers, $return_id, $passengers]);
-                    if ($stmt->rowCount() !== 1) {
-                        $db->rollBack();
-                        $error_message = "Not enough seats available on the return flight.";
-                        $ok = false;
-                    }
-                }
-                if ($ok) {
-                    // One passengers row per traveler
-                    $pstmt = $db->prepare("INSERT INTO passengers (booking_id, full_name, dob, gender, passport_no) VALUES (?, ?, ?, ?, ?)");
-                    $passenger_ids = [];
-                    for ($i = 0; $i < $passengers; $i++) {
-                        $passport = trim($passports[$i] ?? '');
-                        $pstmt->execute([
-                            $booking_id,
-                            trim($names[$i]),
-                            trim($dobs[$i]),
-                            $genders[$i],
-                            $passport === '' ? null : $passport,
-                        ]);
-                        $passenger_ids[] = $db->lastInsertId();
-                    }
+            // One passengers row per traveler
+            $pstmt = $db->prepare("INSERT INTO passengers (booking_id, full_name, dob, gender, passport_no) VALUES (?, ?, ?, ?, ?)");
+            $passenger_ids = [];
+            for ($i = 0; $i < $passengers; $i++) {
+                $passport = trim($passports[$i] ?? '');
+                $pstmt->execute([
+                    $booking_id,
+                    trim($names[$i]),
+                    trim($dobs[$i]),
+                    $genders[$i],
+                    $passport === '' ? null : $passport,
+                ]);
+                $passenger_ids[] = $db->lastInsertId();
+            }
 
-                    // One ticket per passenger per leg. The fare is a
-                    // snapshot of this flight's class price right now:
-                    // future price edits must not change past tickets.
-                    $tstmt = $db->prepare("INSERT INTO tickets (booking_id, passenger_id, flight_id, seat_number, class, fare) VALUES (?, ?, ?, ?, ?, ?)");
-                    $legs = [[$flight_id, $outbound_price]];
-                    if ($return_flight) {
-                        $legs[] = [$return_id, $return_price];
-                    }
-                    foreach ($legs as $leg) {
-                        list($leg_flight_id, $leg_fare) = $leg;
-                        $seats = assignSeats($db, $leg_flight_id, $passengers);
-                        foreach ($passenger_ids as $i => $pid) {
-                            $tstmt->execute([$booking_id, $pid, $leg_flight_id, $seats[$i], $class, $leg_fare]);
-                        }
-                    }
-
-                    $db->commit();
-                    header("Location: payment.php?booking_id=" . $booking_id);
-                    exit;
+            // One ticket per passenger per leg. The fare is a
+            // snapshot of this flight's class price right now:
+            // future price edits must not change past tickets.
+            // Seat accounting is the trigger's job: every INSERT takes
+            // one guarded seat, and overselling raises SQLSTATE 45000,
+            // rolling this whole transaction back.
+            $tstmt = $db->prepare("INSERT INTO tickets (booking_id, passenger_id, flight_id, seat_number, class, fare) VALUES (?, ?, ?, ?, ?, ?)");
+            $legs = [[$flight_id, $outbound_price]];
+            if ($return_flight) {
+                $legs[] = [$return_id, $return_price];
+            }
+            foreach ($legs as $leg) {
+                list($leg_flight_id, $leg_fare) = $leg;
+                $seats = assignSeats($db, $leg_flight_id, $passengers);
+                foreach ($passenger_ids as $i => $pid) {
+                    $tstmt->execute([$booking_id, $pid, $leg_flight_id, $seats[$i], $class, $leg_fare]);
                 }
             }
+
+            $db->commit();
+            header("Location: payment.php?booking_id=" . $booking_id);
+            exit;
         } catch (Exception $e) {
-            $db->rollBack();
-            $error_message = "An error occurred while processing your booking.";
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            // The seat trigger signals 45000 when a flight is oversold
+            if ($e instanceof PDOException && strpos($e->getMessage(), 'Not enough seats') !== false) {
+                $error_message = "Not enough seats available on this flight. Please pick another flight or fewer passengers.";
+            } else {
+                $error_message = "An error occurred while processing your booking.";
+            }
         }
     }
 }

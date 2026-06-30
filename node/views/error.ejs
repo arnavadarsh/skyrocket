@@ -1,0 +1,18 @@
+<%- include('partials/header') %>
+<main>
+  <div class="container">
+    <div class="error-page">
+      <div class="error-art">
+        <span class="error-plane">&#9992;</span>
+        <span class="error-code"><%= title === 'Not Found' ? '404' : 'Oops' %></span>
+      </div>
+      <h1><%= title %></h1>
+      <p><%= message %></p>
+      <div class="error-actions">
+        <a href="/" class="btn">Back to Home</a>
+        <a href="/flights" class="btn btn-secondary">Search Flights</a>
+      </div>
+    </div>
+  </div>
+</main>
+<%- include('partials/footer') %>

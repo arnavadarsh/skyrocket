@@ -1,0 +1,218 @@
+<%- include('partials/header') %>
+<main>
+    <div class="search-summary">
+        <svg class="flightpath" viewBox="0 0 600 200" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <path id="sumRoute" class="trail" d="M-40 150 C 140 120, 300 150, 420 80 S 560 24, 660 16"/>
+            <g>
+                <path class="plane" d="M2.5 19 L21 12 L2.5 5 L2.5 10.5 L15 12 L2.5 13.5 Z" transform="translate(-11,-12) scale(1.4)"/>
+                <animateMotion dur="8s" repeatCount="indefinite" rotate="auto" calcMode="linear">
+                    <mpath href="#sumRoute"/>
+                </animateMotion>
+                <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.08;0.9;1" dur="8s" repeatCount="indefinite"/>
+            </g>
+        </svg>
+        <div class="container">
+            <h1>Flight Search Results</h1>
+            <% if (from && to) { %>
+            <div class="search-details">
+                <div class="route">
+                    <strong><%= from %></strong> to <strong><%= to %></strong>
+                </div>
+                <div class="trip-details">
+                    <span><%= h.ucfirst(trip_type) %> Trip</span> |
+                    <span><%= h.ucfirst(cabin) %> Class</span> |
+                    <span><%= passengers %> Passenger<%= passengers > 1 ? 's' : '' %></span>
+                </div>
+                <div class="dates">
+                    <span>Departure: <%= h.phpDate('M d, Y', departure_date) %></span>
+                    <% if (trip_type === 'round' && return_date) { %>
+                    <span>Return: <%= h.phpDate('M d, Y', return_date) %></span>
+                    <% } %>
+                </div>
+            </div>
+            <% } %>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="flight-search-container">
+            <div class="search-sidebar">
+                <div class="filter-section">
+                    <h3>Filter Results</h3>
+                    <form action="/flights" method="get" id="filter-form">
+                        <input type="hidden" name="from" value="<%= from %>">
+                        <input type="hidden" name="to" value="<%= to %>">
+                        <input type="hidden" name="departure_date" value="<%= departure_date %>">
+                        <input type="hidden" name="return_date" value="<%= return_date %>">
+                        <input type="hidden" name="trip_type" value="<%= trip_type %>">
+                        <input type="hidden" name="class" value="<%= cabin %>">
+                        <input type="hidden" name="passengers" value="<%= passengers %>">
+
+                        <div class="filter-group">
+                            <h4>Price Range</h4>
+                            <div class="price-slider">
+                                <input type="range" min="0" max="500000" value="<%= max_price %>" class="slider" id="price-range" name="max_price">
+                                <div class="price-values">
+                                    <span>&#8377;0</span>
+                                    <span id="price-value">&#8377;<%= max_price %></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="filter-group">
+                            <h4>Airlines</h4>
+                            <div class="checkbox-group">
+                                <% all_airlines.forEach(function(airline) { %>
+                                <label>
+                                    <input type="checkbox" name="airline[]" value="<%= airline %>"
+                                        <%= (airlines.length === 0 || airlines.includes(airline)) ? 'checked' : '' %>>
+                                    <%= airline %>
+                                </label>
+                                <% }) %>
+                            </div>
+                        </div>
+
+                        <div class="filter-group">
+                            <h4>Departure Time</h4>
+                            <div class="checkbox-group">
+                                <% const tslots = [['morning','Morning (6AM - 12PM)'],['afternoon','Afternoon (12PM - 6PM)'],['evening','Evening (6PM - 12AM)'],['night','Night (12AM - 6AM)']]; %>
+                                <% tslots.forEach(function(t) { %>
+                                <label>
+                                    <input type="checkbox" name="departure_time[]" value="<%= t[0] %>"
+                                        <%= (departure_times.length === 0 || departure_times.includes(t[0])) ? 'checked' : '' %>>
+                                    <%= t[1] %>
+                                </label>
+                                <% }) %>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-block">Apply Filters</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="flight-results">
+                <% if (outbound_flights.length > 0) { %>
+                    <div class="flight-section">
+                        <h2>Outbound Flights</h2>
+                        <p class="flight-date"><%= h.phpDate('l, F j, Y', departure_date) %></p>
+
+                        <% outbound_flights.forEach(function(flight) { %>
+                            <div class="flight-card <%= flight.is_best ? 'best-value' : '' %>" data-flight-id="<%= flight.flight_id %>"><% if (flight.is_best) { %><span class="best-ribbon">Best Value</span><% } %>
+                                <div class="flight-info">
+                                    <div class="airline">
+                                        <span><%= flight.airline %></span>
+                                        <%- h.statusBadge(flight.status) %>
+                                        <span class="flight-number"><%= flight.flight_number %></span>
+                                    </div>
+                                    <div class="flight-times">
+                                        <div class="departure">
+                                            <div class="time"><%= h.phpDate('H:i', flight.departure_time) %></div>
+                                            <div class="city"><%= flight.departure_city %></div>
+                                        </div>
+                                        <div class="flight-duration">
+                                            <div class="duration-line"></div>
+                                            <div class="duration-time"><%= h.durationHM(flight.departure_time, flight.arrival_time) %></div>
+                                        </div>
+                                        <div class="arrival">
+                                            <div class="time"><%= h.phpDate('H:i', flight.arrival_time) %></div>
+                                            <div class="city"><%= flight.arrival_city %></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="flight-price">
+                                    <div class="price">&#8377;<%= h.nf2(flight.selected_price) %></div>
+                                    <div class="per-person">per person</div>
+                                    <% if (flight.status === 'cancelled') { %>
+                                        <span class="btn btn-select btn-disabled">Unavailable</span>
+                                    <% } else { %>
+                                        <a href="/booking?flight_id=<%= flight.flight_id %>&return_id=&passengers=<%= passengers %>&class=<%= cabin %>" class="btn btn-select">Select</a>
+                                    <% } %>
+                                </div>
+                            </div>
+                        <% }) %>
+                    </div>
+
+                    <% if (return_flights.length > 0) { %>
+                        <div class="flight-section">
+                            <h2>Return Flights</h2>
+                            <p class="flight-date"><%= h.phpDate('l, F j, Y', return_date) %></p>
+
+                            <% return_flights.forEach(function(flight) { %>
+                                <div class="flight-card <%= flight.is_best ? 'best-value' : '' %>" data-flight-id="<%= flight.flight_id %>"><% if (flight.is_best) { %><span class="best-ribbon">Best Value</span><% } %>
+                                    <div class="flight-info">
+                                        <div class="airline">
+                                            <span><%= flight.airline %></span>
+                                            <%- h.statusBadge(flight.status) %>
+                                            <span class="flight-number"><%= flight.flight_number %></span>
+                                        </div>
+                                        <div class="flight-times">
+                                            <div class="departure">
+                                                <div class="time"><%= h.phpDate('H:i', flight.departure_time) %></div>
+                                                <div class="city"><%= flight.departure_city %></div>
+                                            </div>
+                                            <div class="flight-duration">
+                                                <div class="duration-line"></div>
+                                                <div class="duration-time"><%= h.durationHM(flight.departure_time, flight.arrival_time) %></div>
+                                            </div>
+                                            <div class="arrival">
+                                                <div class="time"><%= h.phpDate('H:i', flight.arrival_time) %></div>
+                                                <div class="city"><%= flight.arrival_city %></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="flight-price">
+                                        <div class="price">&#8377;<%= h.nf2(flight.selected_price) %></div>
+                                        <div class="per-person">per person</div>
+                                        <% if (flight.status === 'cancelled') { %>
+                                            <span class="btn btn-select btn-disabled">Unavailable</span>
+                                        <% } else { %>
+                                            <a href="/booking?flight_id=&return_id=<%= flight.flight_id %>&passengers=<%= passengers %>&class=<%= cabin %>" class="btn btn-select">Select</a>
+                                        <% } %>
+                                    </div>
+                                </div>
+                            <% }) %>
+                        </div>
+                    <% } %>
+                <% } else { %>
+                    <div class="no-flights">
+                        <h2>No Flights Found</h2>
+                        <p>We couldn't find any flights matching your search criteria. Please try different dates or destinations.</p>
+                        <a href="/" class="btn">Back to Search</a>
+                    </div>
+                <% } %>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script>
+    const priceSlider = document.getElementById('price-range');
+    const priceValue = document.getElementById('price-value');
+    if (priceSlider) {
+        priceSlider.addEventListener('input', function () {
+            priceValue.textContent = '₹' + this.value;
+        });
+    }
+
+    const PASSENGERS = <%= passengers %>;
+    const CABIN = <%- JSON.stringify(cabin) %>;
+
+    document.querySelectorAll('.flight-card').forEach(function (card) {
+        card.addEventListener('click', function (e) {
+            if (e.target.classList.contains('btn-select')) return;
+            document.querySelectorAll('.flight-card').forEach(function (c) { c.classList.remove('selected'); });
+            this.classList.add('selected');
+            const flightId = this.getAttribute('data-flight-id');
+            const isOutbound = this.closest('.flight-section').querySelector('h2').textContent.includes('Outbound');
+            if (isOutbound) { window.selectedOutbound = flightId; } else { window.selectedReturn = flightId; }
+            if (window.selectedOutbound && window.selectedReturn) {
+                document.querySelectorAll('.flight-card .btn-select').forEach(function (btn) {
+                    btn.href = `/booking?flight_id=${window.selectedOutbound}&return_id=${window.selectedReturn}&passengers=${PASSENGERS}&class=${CABIN}`;
+                });
+            }
+        });
+    });
+</script>
+
+<%- include('partials/footer') %>
